@@ -30,23 +30,70 @@ static const int WIFI_RETRY_ATTEMPT = 3;
 static int wifi_retry_count = 0;
 
 void InitCamera();
+void takePhoto(void *parameters);
+int counter = 0;
 
 extern "C" void app_main(void) {
     vTaskDelay(3000 / portTICK_PERIOD_MS);
- 
+    InitCamera();
+
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
 
     printf("Program Started!\n");
     WiFi.mode(WIFI_STA);
-    wl_status_t status = WiFi.begin("CU_eT83","wanglijun123456");
+    wl_status_t status = WiFi.begin("s20154530", "Y20154530");
     printf("Init WIFI !\n");
-    WiFiClient client;
-    client.connect("211.101.235.6",20241,2000);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        counter++;
+        if (counter >= 60) { // 30 seconds timeout - reset board
+            ESP.restart();
+        }
+    }
+
+    printf("Connecting to website: ");
+    HTTPClient *client = new HTTPClient();
+    client->begin("https://api.y-theta.cn/firefly");
+    int httpCode = client->GET();
+    if (httpCode > 0) {
+        ESP_LOGI(TAG, "[HTTP] GET... code: %d\n", httpCode);
+        // file found at server --> on unsuccessful connection code will be -1
+        if (httpCode == HTTP_CODE_OK) {
+            String payload = client->getString();
+            ESP_LOGI(TAG, "%s", payload.c_str());
+        }
+    } else {
+        ESP_LOGI(TAG, "[HTTP] GET... failed, error: %s\n", client->errorToString(httpCode).c_str());
+    }
+
+    delete client;
     printf("Init Camera !\n");
-    // InitCamera();
     // esp_restart();
-    free(&client);
+    xTaskCreate(takePhoto, "photo", 5 * 1024, NULL, 5, NULL);
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        delay(1000);
+        vTaskDelay(1);
+    }
+}
+
+void takePhoto(void *parameters) {
+    while (1) {
+        camera_fb_t *fb = NULL;
+        fb = esp_camera_fb_get();
+        if (!fb) {
+            vTaskDelay(100);
+            continue;
+        }
+        vTaskDelay(1000);
+        ESP_LOGI(TAG, "captrued height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
+
+        esp_camera_fb_return(fb);
+        fb = NULL;
+        delay(2000);
     }
 }
 

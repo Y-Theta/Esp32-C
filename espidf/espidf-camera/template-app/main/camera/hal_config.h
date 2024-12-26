@@ -38,7 +38,7 @@
 #define HAL_PIN_SD_MISO 40
 
 // Camera
-#define XCLK_FREQ_HZ 20000000
+#define XCLK_FREQ_HZ 10000000
 
 #define CAMERA_MODULE_NAME "M5Stack-Unit-CamS3"
 #define CAMERA_PIN_PWDN -1
