@@ -6,6 +6,7 @@
 #include "esp_wifi.h"
 #include "sdkconfig.h"
 #include <HTTPClient.h>
+#include <WiFi.h>
 
 #include <esp_camera.h>
 #include <inttypes.h>
@@ -32,13 +33,18 @@ void InitCamera();
 
 extern "C" void app_main(void) {
     vTaskDelay(3000 / portTICK_PERIOD_MS);
+ 
 
     printf("Program Started!\n");
+    WiFi.mode(WIFI_STA);
+    wl_status_t status = WiFi.begin("CU_eT83","wanglijun123456");
     printf("Init WIFI !\n");
-
+    WiFiClient client;
+    client.connect("211.101.235.6",20241,2000);
     printf("Init Camera !\n");
     // InitCamera();
     // esp_restart();
+    free(&client);
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
