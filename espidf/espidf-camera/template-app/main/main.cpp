@@ -35,13 +35,9 @@ int counter = 0;
 
 extern "C" void app_main(void) {
     vTaskDelay(3000 / portTICK_PERIOD_MS);
-    InitCamera();
 
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
+    nvs_flash_init();
+    InitCamera();
 
     printf("Program Started!\n");
     WiFi.mode(WIFI_STA);
@@ -55,45 +51,63 @@ extern "C" void app_main(void) {
         }
     }
 
-    printf("Connecting to website: ");
-    HTTPClient *client = new HTTPClient();
-    client->begin("https://api.y-theta.cn/firefly");
-    int httpCode = client->GET();
-    if (httpCode > 0) {
-        ESP_LOGI(TAG, "[HTTP] GET... code: %d\n", httpCode);
-        // file found at server --> on unsuccessful connection code will be -1
-        if (httpCode == HTTP_CODE_OK) {
-            String payload = client->getString();
-            ESP_LOGI(TAG, "%s", payload.c_str());
-        }
-    } else {
-        ESP_LOGI(TAG, "[HTTP] GET... failed, error: %s\n", client->errorToString(httpCode).c_str());
-    }
+    // printf("Connecting to website: ");
+    // HTTPClient *client = new HTTPClient();
+    // client->begin("https://api.y-theta.cn/firefly");
+    // int httpCode = client->GET();
+    // if (httpCode > 0) {
+    //     ESP_LOGI(TAG, "[HTTP] GET... code: %d\n", httpCode);
+    //     // file found at server --> on unsuccessful connection code will be -1
+    //     if (httpCode == HTTP_CODE_OK) {
+    //         String payload = client->getString();
+    //         ESP_LOGI(TAG, "%s", payload.c_str());
+    //     }
+    // } else {
+    //     ESP_LOGI(TAG, "[HTTP] GET... failed, error: %s\n", client->errorToString(httpCode).c_str());
+    // }
 
-    delete client;
+    // delete client;
     printf("Init Camera !\n");
     // esp_restart();
     xTaskCreate(takePhoto, "photo", 5 * 1024, NULL, 5, NULL);
-    while (true) {
-        delay(1000);
-        vTaskDelay(1);
+    while (1) {
+        vTaskDelay(1000);
     }
 }
 
 void takePhoto(void *parameters) {
-    while (1) {
-        camera_fb_t *fb = NULL;
-        fb = esp_camera_fb_get();
-        if (!fb) {
-            vTaskDelay(100);
-            continue;
-        }
-        vTaskDelay(1000);
-        ESP_LOGI(TAG, "captrued height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
+    uint32_t post_time_count = 0;
+    bool start_post = true;
+    int post_count_down = 1000;
 
-        esp_camera_fb_return(fb);
-        fb = NULL;
-        delay(2000);
+    while (true) {
+        delay(100);
+
+        if (millis() - post_time_count > 1000) {
+            if (start_post) {
+                start_post = false;
+
+                camera_fb_t *fb = NULL;
+                fb = esp_camera_fb_get();
+                if (!fb) {
+                    vTaskDelay(4000);
+                    continue;
+                }
+                vTaskDelay(1000);
+                ESP_LOGI(TAG, "captrued height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
+
+                esp_camera_fb_return(fb);
+                fb = NULL;
+                post_count_down = 1000;
+            }
+
+            post_count_down--;
+            if (post_count_down <= 0)
+                start_post = true;
+
+            // spdlog::info("post count down: {}", post_count_down);
+            post_time_count = millis();
+        }
     }
 }
 
@@ -120,7 +134,7 @@ void InitCamera() {
     config.xclk_freq_hz = XCLK_FREQ_HZ;
     config.pixel_format = PIXFORMAT_JPEG;
     config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 12;
+    config.jpeg_quality = 10;
     config.fb_count = 1;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
