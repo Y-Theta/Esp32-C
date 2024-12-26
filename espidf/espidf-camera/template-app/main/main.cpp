@@ -75,6 +75,7 @@ extern "C" void app_main(void) {
     }
 }
 
+
 void takePhoto(void *parameters) {
     uint32_t post_time_count = 0;
     bool start_post = true;
@@ -83,8 +84,8 @@ void takePhoto(void *parameters) {
     while (true) {
         delay(100);
 
-        if (millis() - post_time_count > 1000) {
-            if (start_post) {
+        // if (millis() - post_time_count > 1000) {
+            // if (start_post) {
                 start_post = false;
 
                 camera_fb_t *fb = NULL;
@@ -99,15 +100,15 @@ void takePhoto(void *parameters) {
                 esp_camera_fb_return(fb);
                 fb = NULL;
                 post_count_down = 1000;
-            }
+            // }
 
-            post_count_down--;
-            if (post_count_down <= 0)
-                start_post = true;
+        //     post_count_down--;
+        //     if (post_count_down <= 0)
+        //         start_post = true;
 
-            // spdlog::info("post count down: {}", post_count_down);
-            post_time_count = millis();
-        }
+        //     // spdlog::info("post count down: {}", post_count_down);
+        //     post_time_count = millis();
+        // }
     }
 }
 
