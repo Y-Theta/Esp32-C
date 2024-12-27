@@ -478,10 +478,10 @@ camera_fb_t *cam_take(TickType_t timeout)
     // GDMA to fall into a strange state if it is running while WiFi STA is connecting.
     // This code tries to reset GDMA if frame is not received, to try and help with
     // this case. It is possible to have some side effects too, though none come to mind
-    if (!dma_buffer) {
-        ll_cam_dma_reset(cam_obj);
-        xQueueReceive(cam_obj->frame_buffer_queue, (void *)&dma_buffer, timeout);
-    }
+    // if (!dma_buffer) {
+    //     ll_cam_dma_reset(cam_obj);
+    //     xQueueReceive(cam_obj->frame_buffer_queue, (void *)&dma_buffer, timeout);
+    // }
 #endif
     if (dma_buffer) {
         if(cam_obj->jpeg_mode){

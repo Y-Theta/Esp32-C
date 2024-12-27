@@ -76,44 +76,39 @@ extern "C" void app_main(void) {
     }
 }
 
-void uploadPhoto(camera_fb_t *fb) {
-    WiFiClient *client = new WiFiClient();
+String boundary = String("*****") + String("AaB03x") + String("*****");
+String constpostinfo = "--" + boundary + "\r\n" +
+                       "Content-Disposition: form-data; name=\"token\"\r\n\r\n" +
+                       "1c17b11693cb5ec63859b091c5b9c1b2\r\n" +
+                       "--" + boundary + "\r\n" +
+                       "Content-Disposition: form-data; name=\"image\"; filename=\"photo.jpeg\"; filename*=\"UTF-8''photo.jpeg\"\r\n\r\n";
+String footer = "\r\n--" + boundary + "--\r\n";
+
+void uploadPhoto(WiFiClient *client, camera_fb_t *fb) {
     if (!client->connect("38.147.174.195", 65001)) {
         printf("Connection failed!");
         return;
     }
     printf("server connected !");
-    String formData = "";
-    String boundary = String("*****") + String("AaB03x") + String("*****");
-    String charset = "UTF-8";
-
-    formData += "--" + boundary + "\r\n";
-    formData += "Content-Disposition: form-data; name=\"token\"\r\n\r\n";
-    formData += "1c17b11693cb5ec63859b091c5b9c1b2\r\n";
-    
-    formData += "--" + boundary + "\r\n";
-    formData += "Content-Disposition: form-data; name=\"image\"; filename=\"photo.jpeg\"; filename*=\"UTF-8''photo.jpeg\"\r\n\r\n";
-
     String footer = "\r\n--" + boundary + "--\r\n";
-
-    int contentLength = formData.length() + fb->len + footer.length();
+    int contentLength = constpostinfo.length() + fb->len + footer.length();
     printf("start uploading !");
     client->print("POST /api/index.php HTTP/1.1\r\n");
     client->print("Host: 38.147.174.195:65001\r\n");
     client->print("Cache-Control: no-cache\r\n");
+    client->println("Connection: Keep-Alive");
     client->print("Content-Type: multipart/form-data; boundary=" + boundary + "\r\n");
     client->print("Content-Length: " + String(contentLength) + "\r\n\r\n");
-    client->print(formData);
-    client->write(fb->buf,fb->len);
+    client->print(constpostinfo);
+    client->write(fb->buf, fb->len);
     client->print(footer);
     client->stop();
-    delete client;
 }
 
 void takePhoto(void *parameters) {
     uint32_t post_time_count = 0;
     bool start_post = true;
-    int post_count_down = 1000;
+    WiFiClient *client = new WiFiClient();
 
     while (true) {
         delay(100);
@@ -125,12 +120,11 @@ void takePhoto(void *parameters) {
             continue;
         }
         ESP_LOGI(TAG, "captrued height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
-        uploadPhoto(fb);
+        uploadPhoto(client, fb);
         esp_camera_fb_return(fb);
         fb = NULL;
-        post_count_down = 1000;
 
-        vTaskDelay(10 * 1000);
+        vTaskDelay(500);
     }
 }
 
@@ -156,8 +150,8 @@ void InitCamera() {
     config.pin_reset = CAMERA_PIN_RESET;
     config.xclk_freq_hz = XCLK_FREQ_HZ;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = FRAMESIZE_HD;
-    config.jpeg_quality = 10;
+    config.frame_size = FRAMESIZE_VGA;
+    config.jpeg_quality = 12;
     config.fb_count = 1;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
