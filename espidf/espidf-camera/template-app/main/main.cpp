@@ -10,6 +10,7 @@
 
 #include <esp_camera.h>
 #include <inttypes.h>
+#include <json_parser.h>
 #include <nvs_flash.h>
 #include <stdio.h>
 
@@ -20,8 +21,8 @@
 #define WIFI_AUTHMODE WIFI_AUTH_WPA2_PSK
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
-#define WIFI_SSID "s20154530"
-#define WIFI_PASSWORD "Y20154530"
+#define WIFI_SSID "CU_eT83"
+#define WIFI_PASSWORD "wanglijun123456"
 
 #define MAX_HTTP_RECV_BUFFER 512
 #define MAX_HTTP_OUTPUT_BUFFER 2048
@@ -75,6 +76,40 @@ extern "C" void app_main(void) {
     }
 }
 
+void uploadPhoto(camera_fb_t *fb) {
+    WiFiClient *client = new WiFiClient();
+    if (!client->connect("38.147.174.195", 65001)) {
+        printf("Connection failed!");
+        return;
+    }
+    printf("server connected !");
+    String formData = "";
+    String boundary = String("*****") + String("AaB03x") + String("*****");
+    String charset = "UTF-8";
+
+    formData += "--" + boundary + "\r\n";
+    formData += "Content-Disposition: form-data; name=\"token\"\r\n\r\n";
+    formData += "1c17b11693cb5ec63859b091c5b9c1b2\r\n";
+    
+    formData += "--" + boundary + "\r\n";
+    formData += "Content-Disposition: form-data; name=\"image\"; filename=\"photo.jpeg\"; filename*=\"UTF-8''photo.jpeg\"\r\n\r\n";
+
+    String footer = "\r\n--" + boundary + "--\r\n";
+
+    int contentLength = formData.length() + fb->len + footer.length();
+    printf("start uploading !");
+    client->print("POST /api/index.php HTTP/1.1\r\n");
+    client->print("Host: 38.147.174.195:65001\r\n");
+    client->print("Cache-Control: no-cache\r\n");
+    client->print("Content-Type: multipart/form-data; boundary=" + boundary + "\r\n");
+    client->print("Content-Length: " + String(contentLength) + "\r\n\r\n");
+    client->print(formData);
+    client->write(fb->buf,fb->len);
+    client->print(footer);
+    client->stop();
+    delete client;
+}
+
 void takePhoto(void *parameters) {
     uint32_t post_time_count = 0;
     bool start_post = true;
@@ -90,12 +125,12 @@ void takePhoto(void *parameters) {
             continue;
         }
         ESP_LOGI(TAG, "captrued height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
-
+        uploadPhoto(fb);
         esp_camera_fb_return(fb);
         fb = NULL;
         post_count_down = 1000;
 
-        vTaskDelay(1000);
+        vTaskDelay(10 * 1000);
     }
 }
 
@@ -121,7 +156,7 @@ void InitCamera() {
     config.pin_reset = CAMERA_PIN_RESET;
     config.xclk_freq_hz = XCLK_FREQ_HZ;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = FRAMESIZE_VGA;
+    config.frame_size = FRAMESIZE_HD;
     config.jpeg_quality = 10;
     config.fb_count = 1;
     config.fb_location = CAMERA_FB_IN_PSRAM;
