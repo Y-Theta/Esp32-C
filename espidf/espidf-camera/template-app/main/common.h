@@ -19,8 +19,15 @@ namespace CONFIG
         std::string wifiPass = "";
         std::string startPoster = "no";
         std::string waitApFirst = "no";
-        std::string nickname = "UnitCamS3";
+        std::string nickname = "5mpCamera";
         std::string timeZone = "GMT+0";
+
+        std::string postServer = "127.0.0.1";
+        int postPort = 8080;
         int postInterval = 5;
+
+        int jpegQuantity = 12;
+        framesize_t frameSize = FRAMESIZE_VGA;
+
     };
 } // namespace CONFIG

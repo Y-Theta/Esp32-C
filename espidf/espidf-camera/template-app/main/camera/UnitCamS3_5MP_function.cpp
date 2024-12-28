@@ -1,9 +1,8 @@
 #include "camera/UnitCamS3_5MP.h"
 
-void UnitCamS3_5MP::SetLed(bool state){
+void UnitCamS3_5MP::SetLed(bool state) {
     gpio_set_level((gpio_num_t)HAL_PIN_LED, state ? 0 : 1);
 }
-
 
 void UnitCamS3_5MP::LoadConfig() {
     ESP_LOGI(TAG, "load config");
@@ -30,20 +29,25 @@ void UnitCamS3_5MP::LoadConfig() {
     _config.startPoster = doc["startPoster"].as<std::string>();
     _config.waitApFirst = doc["waitApFirst"].as<std::string>();
     _config.nickname = doc["nickname"].as<std::string>();
-    _config.postInterval = doc["postInterval"];
     _config.timeZone = doc["timeZone"].as<std::string>();
+
+    _config.postInterval = doc["postInterval"];
+    _config.postServer = doc["postServer"].as<std::string>();
+    _config.postPort = doc["postPort"];
+
+    _config.jpegQuantity = doc["jpegQuantity"];
+    _config.frameSize = doc["frameSize"].as<framesize_t>();
 
     file.close();
 }
 
-void UnitCamS3_5MP::SaveConfig(){
-      ESP_LOGI(TAG,"save system config");
+void UnitCamS3_5MP::SaveConfig() {
+    ESP_LOGI(TAG, "save system config");
 
     // Try open
     File file = LittleFS.open(CONFIG_FILE_PATH, "w");
-    if (!file)
-    {
-        ESP_LOGI(TAG,"open {} failed", CONFIG_FILE_PATH);
+    if (!file) {
+        ESP_LOGI(TAG, "open {%s} failed", CONFIG_FILE_PATH);
         return;
     }
 
@@ -55,8 +59,14 @@ void UnitCamS3_5MP::SaveConfig(){
     doc["startPoster"] = _config.startPoster;
     doc["waitApFirst"] = _config.waitApFirst;
     doc["nickname"] = _config.nickname;
-    doc["postInterval"] = _config.postInterval;
     doc["timeZone"] = _config.timeZone;
+
+    doc["postInterval"] = _config.postInterval;
+    doc["postServer"] = _config.postServer;
+    doc["postPort"] = _config.postPort;
+
+    doc["jpegQuantity"] = _config.jpegQuantity;
+    doc["frameSize"] = _config.frameSize;
 
     serializeJson(doc, file);
 
@@ -75,7 +85,7 @@ void UnitCamS3_5MP::TakePhoto() {
         return;
     }
     ESP_LOGI(TAG, "captrued height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
-    
+
     esp_camera_fb_return(fb);
     fb = NULL;
     if (OnTakePhotoEnd != nullptr) {

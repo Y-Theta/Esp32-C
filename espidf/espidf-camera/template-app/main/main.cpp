@@ -1,23 +1,8 @@
 #include "camera/hal_config.h"
 #include "camera/UnitCamS3_5MP.h"
 
-#include "esp_chip_info.h"
-#include "esp_flash.h"
-#include "esp_mac.h"
-#include "esp_netif.h"
-#include "esp_wifi.h"
-#include "sdkconfig.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
-
-#include <esp_camera.h>
-#include <inttypes.h>
-#include <json_parser.h>
-#include <nvs_flash.h>
-#include <stdio.h>
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 #define WIFI_SSID "CU_eT83"
 #define WIFI_PASSWORD "wanglijun123456"
