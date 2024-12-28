@@ -32,17 +32,17 @@ static int wifi_retry_count = 0;
 
 void InitCamera();
 void takePhoto(void *parameters);
+void setLedState(bool state);
+void InitLED();
 int counter = 0;
 
 extern "C" void app_main(void) {
     vTaskDelay(3000 / portTICK_PERIOD_MS);
 
     nvs_flash_init();
-    InitCamera();
-
     printf("Program Started!\n");
     WiFi.mode(WIFI_STA);
-    wl_status_t status = WiFi.begin("s20154530", "Y20154530");
+    wl_status_t status = WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     printf("Init WIFI !\n");
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
@@ -51,24 +51,10 @@ extern "C" void app_main(void) {
             ESP.restart();
         }
     }
-
-    // printf("Connecting to website: ");
-    // HTTPClient *client = new HTTPClient();
-    // client->begin("https://api.y-theta.cn/firefly");
-    // int httpCode = client->GET();
-    // if (httpCode > 0) {
-    //     ESP_LOGI(TAG, "[HTTP] GET... code: %d\n", httpCode);
-    //     // file found at server --> on unsuccessful connection code will be -1
-    //     if (httpCode == HTTP_CODE_OK) {
-    //         String payload = client->getString();
-    //         ESP_LOGI(TAG, "%s", payload.c_str());
-    //     }
-    // } else {
-    //     ESP_LOGI(TAG, "[HTTP] GET... failed, error: %s\n", client->errorToString(httpCode).c_str());
-    // }
-
     // delete client;
     printf("Init Camera !\n");
+    InitCamera();
+    InitLED();
     // esp_restart();
     xTaskCreate(takePhoto, "photo", 5 * 1024, NULL, 5, NULL);
     while (1) {
@@ -76,46 +62,56 @@ extern "C" void app_main(void) {
     }
 }
 
-String boundary = String("*****") + String("AaB03x") + String("*****");
+String boundary = "-------------------------645436246131408991458787";
 String constpostinfo = "--" + boundary + "\r\n" +
-                       "Content-Disposition: form-data; name=\"token\"\r\n\r\n" +
-                       "1c17b11693cb5ec63859b091c5b9c1b2\r\n" +
-                       "--" + boundary + "\r\n" +
-                       "Content-Disposition: form-data; name=\"image\"; filename=\"photo.jpeg\"; filename*=\"UTF-8''photo.jpeg\"\r\n\r\n";
+                       "Content-Disposition: form-data; name=\"image\"; filename=\"'photo.jpeg'\"\r\n" +
+                       "Content-Type: image/jpeg\r\n\r\n";
 String footer = "\r\n--" + boundary + "--\r\n";
 
 void uploadPhoto(WiFiClient *client, camera_fb_t *fb) {
-    if (!client->connect("38.147.174.195", 65001)) {
-        printf("Connection failed!");
-        return;
+
+    if (!client->connected()) {
+        if (!client->connect("38.147.174.195", 20678)) {
+            printf("Connection failed!");
+            return;
+        }
     }
-    printf("server connected !");
-    String footer = "\r\n--" + boundary + "--\r\n";
-    int contentLength = constpostinfo.length() + fb->len + footer.length();
+
     printf("start uploading !");
-    client->print("POST /api/index.php HTTP/1.1\r\n");
-    client->print("Host: 38.147.174.195:65001\r\n");
-    client->print("Cache-Control: no-cache\r\n");
+    int contentLength = constpostinfo.length() + fb->len + footer.length();
+    client->print("POST /imgup HTTP/1.1\r\n");
+    client->println("Accept: */*");
+    client->print("Host: 38.147.174.195:20678\r\n");
     client->println("Connection: Keep-Alive");
     client->print("Content-Type: multipart/form-data; boundary=" + boundary + "\r\n");
     client->print("Content-Length: " + String(contentLength) + "\r\n\r\n");
     client->print(constpostinfo);
     client->write(fb->buf, fb->len);
     client->print(footer);
-    client->stop();
+}
+
+void setLedState(bool state) {
+    // spdlog::info("set led: {}", state);
+    gpio_set_level((gpio_num_t)HAL_PIN_LED, state ? 0 : 1);
 }
 
 void takePhoto(void *parameters) {
     uint32_t post_time_count = 0;
     bool start_post = true;
     WiFiClient *client = new WiFiClient();
+    if (!client->connect("38.147.174.195", 20678)) {
+        printf("Connection failed!");
+        return;
+    }
 
     while (true) {
         delay(100);
 
         camera_fb_t *fb = NULL;
+        setLedState(1);
         fb = esp_camera_fb_get();
         if (!fb) {
+            setLedState(0);
             vTaskDelay(4000);
             continue;
         }
@@ -123,9 +119,15 @@ void takePhoto(void *parameters) {
         uploadPhoto(client, fb);
         esp_camera_fb_return(fb);
         fb = NULL;
-
-        vTaskDelay(500);
+        setLedState(0);
+        vTaskDelay(5 * 1000);
     }
+}
+
+void InitLED() {
+    gpio_reset_pin((gpio_num_t)HAL_PIN_LED);
+    gpio_set_direction((gpio_num_t)HAL_PIN_LED, GPIO_MODE_OUTPUT);
+    gpio_set_pull_mode((gpio_num_t)HAL_PIN_LED, GPIO_PULLUP_ONLY);
 }
 
 void InitCamera() {
@@ -150,8 +152,8 @@ void InitCamera() {
     config.pin_reset = CAMERA_PIN_RESET;
     config.xclk_freq_hz = XCLK_FREQ_HZ;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 12;
+    config.frame_size = FRAMESIZE_UXGA;
+    config.jpeg_quality = 10;
     config.fb_count = 1;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
