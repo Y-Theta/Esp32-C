@@ -1,6 +1,8 @@
 file(GLOB_RECURSE HAL_SRCS
     ../components/ESP32_FTPClient/*.c
     ../components/ESP32_FTPClient/*.cpp
+    ./camera/*.c
+    ./camera/*.cpp
 )
 
 set(APP_LAYER_INCS
