@@ -73,7 +73,11 @@ void UnitCamS3_5MP::SaveConfig() {
     file.close();
 }
 
-void UnitCamS3_5MP::TakePhoto() {
+CONFIG::SystemConfig_t UnitCamS3_5MP::GetConfig(){
+    return _config;
+}
+
+void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t *buffer)> processPhoto) {
     camera_fb_t *fb = NULL;
     if (OnTakePhotoStart != nullptr) {
         OnTakePhotoStart();
@@ -85,7 +89,9 @@ void UnitCamS3_5MP::TakePhoto() {
         return;
     }
     ESP_LOGI(TAG, "captrued height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
-
+    if (processPhoto) {
+        processPhoto(fb);
+    }
     esp_camera_fb_return(fb);
     fb = NULL;
     if (OnTakePhotoEnd != nullptr) {

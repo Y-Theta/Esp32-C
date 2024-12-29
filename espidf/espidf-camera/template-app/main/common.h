@@ -1,5 +1,15 @@
 #pragma once
-#include <string>
+#include "sdkconfig.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#include "esp_mac.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "nvs_flash.h"
+
+#include "camera/hal_config.h"
 
 #define TAG                 "PY260 Transfer"
 #define WIFI_AUTHMODE       WIFI_AUTH_WPA2_PSK
@@ -27,7 +37,7 @@ namespace CONFIG
         int postInterval = 5;
 
         int jpegQuantity = 12;
-        framesize_t frameSize = FRAMESIZE_VGA;
+        int frameSize = (int)framesize_t::FRAMESIZE_VGA;
 
     };
 } // namespace CONFIG

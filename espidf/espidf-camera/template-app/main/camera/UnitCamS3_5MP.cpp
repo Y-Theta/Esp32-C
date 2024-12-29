@@ -26,7 +26,7 @@ void UnitCamS3_5MP::cam_init() {
     config.pin_reset = CAMERA_PIN_RESET;
     config.xclk_freq_hz = XCLK_FREQ_HZ;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = _config.frameSize;
+    config.frame_size = (framesize_t)_config.frameSize;
     config.jpeg_quality = _config.jpegQuantity;
     config.fb_count = 1;
     config.fb_location = CAMERA_FB_IN_PSRAM;
@@ -56,4 +56,10 @@ void UnitCamS3_5MP::Init() {
     cam_init();
     led_init();
     sd_init();
+
+    _config.wifiSsid = "s20154530";
+    _config.wifiPass = "Y20154530";
+
+    _config.postServer = "38.147.174.195";
+    _config.postPort = 20678;
 }
