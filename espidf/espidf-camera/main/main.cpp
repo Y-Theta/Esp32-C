@@ -47,5 +47,8 @@ extern "C" void app_main(void) {
     camera = new UnitCamS3_5MP();
     camera->OnProcessImage = Operation::upload_photo;
     camera->Init();
+    CONFIG::SystemConfig_t config = camera->GetConfig();
+    config.frameSize = (int)framesize_t::FRAMESIZE_HD;
+    camera->SetConfig(config);
     camera->StartForWorking();
 }

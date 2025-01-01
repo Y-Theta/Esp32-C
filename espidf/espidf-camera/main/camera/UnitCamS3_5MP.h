@@ -9,7 +9,6 @@
 
 #include <common.h>
 
-
 class UnitCamS3_5MP {
 
 protected:
@@ -35,6 +34,7 @@ public:
     std::function<void(camera_fb_t *buffer, UnitCamS3_5MP *camera)> OnProcessImage;
 
     CONFIG::SystemConfig_t GetConfig();
+    void SetConfig(CONFIG::SystemConfig_t config);
 
     void Init();
     void SetLed(bool state);

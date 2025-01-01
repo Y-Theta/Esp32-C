@@ -5,6 +5,9 @@ void UnitCamS3_5MP::sd_init(){
 }
 
 void UnitCamS3_5MP::cam_init() {
+
+    esp_camera_deinit();
+
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;

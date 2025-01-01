@@ -77,6 +77,11 @@ CONFIG::SystemConfig_t UnitCamS3_5MP::GetConfig(){
     return _config;
 }
 
+void UnitCamS3_5MP::SetConfig(CONFIG::SystemConfig_t config){
+    _config = config;
+    cam_init();
+}
+
 void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t *buffer)> processPhoto) {
     camera_fb_t *fb = NULL;
     if (OnTakePhotoStart != nullptr) {
