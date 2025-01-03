@@ -73,13 +73,17 @@ void UnitCamS3_5MP::SaveConfig() {
     file.close();
 }
 
-CONFIG::SystemConfig_t UnitCamS3_5MP::GetConfig(){
+CONFIG::SystemConfig_t UnitCamS3_5MP::GetConfig() {
     return _config;
 }
 
-void UnitCamS3_5MP::SetConfig(CONFIG::SystemConfig_t config){
+void UnitCamS3_5MP::SetConfig(CONFIG::SystemConfig_t config, CONFIG::ConfigType type) {
     _config = config;
-    cam_init();
+    if ((type & CONFIG::ConfigType::APP) == CONFIG::ConfigType::APP) {
+    } else if ((type & CONFIG::ConfigType::CAMERA) == CONFIG::ConfigType::CAMERA) {
+        cam_init();
+    } else if ((type & CONFIG::ConfigType::WIFI) == CONFIG::ConfigType::WIFI) {
+    }
 }
 
 void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t *buffer)> processPhoto) {

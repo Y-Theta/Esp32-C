@@ -1,5 +1,4 @@
 
-
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
@@ -15,6 +14,7 @@ protected:
     CONFIG::SystemConfig_t _config;
 
 private:
+    /// @brief 连接重试计数器
     int wifi_retry_counter;
 
     void cam_init();
@@ -34,7 +34,7 @@ public:
     std::function<void(camera_fb_t *buffer, UnitCamS3_5MP *camera)> OnProcessImage;
 
     CONFIG::SystemConfig_t GetConfig();
-    void SetConfig(CONFIG::SystemConfig_t config);
+    void SetConfig(CONFIG::SystemConfig_t config, CONFIG::ConfigType type);
 
     void Init();
     void SetLed(bool state);

@@ -2,9 +2,6 @@
 
 #include <WiFiClient.h>
 
-#define WIFI_SSID "CU_eT83"
-#define WIFI_PASSWORD "wanglijun123456"
-
 UnitCamS3_5MP *camera = nullptr;
 
 namespace Operation {
@@ -49,6 +46,6 @@ extern "C" void app_main(void) {
     camera->Init();
     CONFIG::SystemConfig_t config = camera->GetConfig();
     config.frameSize = (int)framesize_t::FRAMESIZE_HD;
-    camera->SetConfig(config);
+    camera->SetConfig(config,CONFIG::ConfigType::CAMERA);
     camera->StartForWorking();
 }
