@@ -37,6 +37,10 @@
 #define HAL_PIN_SD_CLK 39
 #define HAL_PIN_SD_MISO 40
 
+// trigger 
+#define BTN_0 43
+#define BTN_1 44
+
 // Camera
 #define XCLK_FREQ_HZ 20000000
 

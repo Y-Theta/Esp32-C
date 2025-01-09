@@ -45,7 +45,7 @@ extern "C" void app_main(void) {
     camera->OnProcessImage = Operation::upload_photo;
     camera->Init();
     CONFIG::SystemConfig_t config = camera->GetConfig();
-    config.frameSize = (int)framesize_t::FRAMESIZE_HD;
+    config.frameSize = (int)framesize_t::FRAMESIZE_UXGA;
     camera->SetConfig(config,CONFIG::ConfigType::CAMERA);
     camera->StartForWorking();
 }

@@ -21,6 +21,8 @@ private:
     void led_init();
     void sd_init();
     void config_init();
+    void mic_init();
+    void btn_init();
 
     void connect_wifi();
     void disconnect_wifi();
@@ -31,6 +33,7 @@ private:
 public:
     std::function<void()> OnTakePhotoStart;
     std::function<void()> OnTakePhotoEnd;
+    std::function<void(int gpio)> OnBtnClick;
     std::function<void(camera_fb_t *buffer, UnitCamS3_5MP *camera)> OnProcessImage;
 
     CONFIG::SystemConfig_t GetConfig();

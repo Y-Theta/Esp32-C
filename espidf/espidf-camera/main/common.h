@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
+#include "driver/gpio.h"
 
 #include "camera/hal_config.h"
 

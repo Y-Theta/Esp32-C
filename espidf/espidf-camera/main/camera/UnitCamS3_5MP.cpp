@@ -1,7 +1,6 @@
 #include "camera/UnitCamS3_5MP.h"
 
-void UnitCamS3_5MP::sd_init(){
-
+void UnitCamS3_5MP::sd_init() {
 }
 
 void UnitCamS3_5MP::cam_init() {
@@ -42,7 +41,6 @@ void UnitCamS3_5MP::cam_init() {
 }
 
 void UnitCamS3_5MP::config_init() {
-
     if (!LittleFS.begin(true)) {
         ESP_LOGI(TAG, "littlefs init failed");
     }
@@ -52,6 +50,28 @@ void UnitCamS3_5MP::led_init() {
     gpio_reset_pin((gpio_num_t)HAL_PIN_LED);
     gpio_set_direction((gpio_num_t)HAL_PIN_LED, GPIO_MODE_OUTPUT);
     gpio_set_pull_mode((gpio_num_t)HAL_PIN_LED, GPIO_PULLUP_ONLY);
+}
+
+void UnitCamS3_5MP::mic_init() {
+    ESP_LOGI(TAG, "init mic");
+}
+
+static void btn_thread(void *parameter) {
+    while (1) {
+        if (gpio_get_level((gpio_num_t)BTN_0)) {
+            ESP_LOGI(TAG, "Btn Typed ");
+        };
+        vTaskDelay(10);
+    }
+}
+
+void UnitCamS3_5MP::btn_init() {
+    ESP_LOGI(TAG, "init btn");
+    gpio_reset_pin((gpio_num_t)BTN_0);
+    gpio_set_direction((gpio_num_t)BTN_0, GPIO_MODE_INPUT);
+    gpio_set_pull_mode((gpio_num_t)BTN_0, GPIO_PULLUP_ONLY);
+
+    xTaskCreate(btn_thread, "btn", 256, NULL, 6, NULL);
 }
 
 void UnitCamS3_5MP::Init() {
