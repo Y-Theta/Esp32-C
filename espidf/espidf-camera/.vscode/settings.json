@@ -1,3 +1,8 @@
 {
-    "idf.portWin": "COM7"
+    "idf.portWin": "COM5",
+    "idf.customExtraVars": {},
+    "idf.currentSetup": "D:\\Cache\\.espressif\\v5.5.4\\esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ]
 }
