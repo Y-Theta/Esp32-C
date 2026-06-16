@@ -1,119 +1,110 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>LLCC68 LoRa Config</title>
-    <style>
-        body {
-            font-family: Arial;
-            margin: 20px;
-            background: #f5f5f5;
-        }
-
-        .card {
-            max-width: 560px;
-            margin: auto;
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 12px rgba(0,0,0,.15);
-        }
-
-        h2 {
-            text-align: center;
-        }
-
-        label {
-            display: block;
-            margin-top: 12px;
-            font-weight: bold;
-        }
-
-        input,
-        select {
-            width: 100%;
-            padding: 10px;
-            margin-top: 6px;
-            box-sizing: border-box;
-        }
-
-        button {
-            width: 100%;
-            margin-top: 20px;
-            padding: 12px;
-            background: #1677ff;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 16px;
-        }
-
-        .info {
-            background: #eef6ff;
-            padding: 10px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-        }
-
-        .tip {
-            color: #666;
-            font-size: 13px;
-            margin-top: 10px;
-        }
-    </style>
+    <link rel="stylesheet" href="/style.css">
 </head>
 
 <body>
 <div class="card">
-    <h2>LLCC68 LoRa 配置</h2>
+    <h2>LLCC68 LoRa 控制台</h2>
 
     <div class="info">
-        ESP32 AP: <b>{{SSID}}</b><br>
+        ESP32 AP: <b id="ssid">--</b><br>
         访问地址: <b>http://172.16.0.1</b>
     </div>
 
-    <form action="/config" method="get">
-        <label>频率 Hz</label>
-        <input name="freq" type="number" value="{{FREQ}}">
-
-        <label>发射功率 dBm</label>
-        <input name="power" type="number" min="-9" max="22" value="{{POWER}}">
-
-        <label>扩频因子 SF</label>
-        <select name="sf">
-            <option value="7" {{SF7}}>SF7</option>
-            <option value="8" {{SF8}}>SF8</option>
-            <option value="9" {{SF9}}>SF9</option>
-            <option value="10" {{SF10}}>SF10</option>
-            <option value="11" {{SF11}}>SF11</option>
-            <option value="12" {{SF12}}>SF12</option>
-        </select>
-
-        <label>带宽 kHz</label>
-        <select name="bw">
-            <option value="125" {{BW125}}>125 kHz</option>
-            <option value="250" {{BW250}}>250 kHz</option>
-            <option value="500" {{BW500}}>500 kHz</option>
-        </select>
-
-        <label>编码率</label>
-        <select name="cr">
-            <option value="1" {{CR1}}>4/5</option>
-            <option value="2" {{CR2}}>4/6</option>
-            <option value="3" {{CR3}}>4/7</option>
-            <option value="4" {{CR4}}>4/8</option>
-        </select>
-
-        <label>同步字</label>
-        <input name="sync" type="text" value="{{SYNC}}">
-
-        <button type="submit">保存并应用</button>
-    </form>
-
-    <div class="tip">
-        提交后 LoRa 参数会立即应用，发送任务不中断。
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="configTab">参数配置</button>
+        <button class="tab-btn" data-tab="messageTab">消息页面</button>
     </div>
+
+    <!-- 参数配置页 -->
+    <div id="configTab" class="tab-page active">
+        <form id="configForm">
+            <label>频率 Hz</label>
+            <input id="freq" name="freq" type="number" required>
+
+            <label>发射功率 dBm</label>
+            <input id="power" name="power" type="number" min="-9" max="22" required>
+
+            <label>扩频因子 SF</label>
+            <select id="sf" name="sf">
+                <option value="7">SF7</option>
+                <option value="8">SF8</option>
+                <option value="9">SF9</option>
+                <option value="10">SF10</option>
+                <option value="11">SF11</option>
+                <option value="12">SF12</option>
+            </select>
+
+            <label>带宽 kHz</label>
+            <select id="bw" name="bw">
+                <option value="125">125 kHz</option>
+                <option value="250">250 kHz</option>
+                <option value="500">500 kHz</option>
+            </select>
+
+            <label>编码率</label>
+            <select id="cr" name="cr">
+                <option value="1">4/5</option>
+                <option value="2">4/6</option>
+                <option value="3">4/7</option>
+                <option value="4">4/8</option>
+            </select>
+
+            <label>同步字</label>
+            <input id="sync" name="sync" type="text" placeholder="例如 0x12">
+
+            <label>LoRa 模块状态</label>
+            <select id="mode" name="mode">
+                <option value="tx">发送模式</option>
+                <option value="rx">接收模式</option>
+            </select>
+
+            <button type="submit">保存并应用</button>
+        </form>
+
+        <div class="tip">
+            提交后 LoRa 参数会立即应用。
+        </div>
+    </div>
+
+    <!-- 消息页面 -->
+    <div id="messageTab" class="tab-page">
+        <div class="status-box">
+            当前 LoRa 状态：<b id="currentMode">--</b>
+        </div>
+
+        <!-- 发送模式 -->
+        <div id="txPanel" class="message-panel hidden">
+            <label>发送消息</label>
+            <textarea
+                id="txMessage"
+                maxlength="100"
+                placeholder="请输入最多 100 个英文字符"
+            ></textarea>
+
+            <div class="counter">
+                <span id="charCount">0</span>/100
+            </div>
+
+            <button id="sendBtn" type="button">发送</button>
+        </div>
+
+        <!-- 接收模式 -->
+        <div id="rxPanel" class="message-panel hidden">
+            <label>接收消息 Console</label>
+            <pre id="rxConsole" class="console" readonly></pre>
+            <button id="clearConsoleBtn" type="button" class="secondary-btn">清空显示</button>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
 </div>
+
+<script src="/app.js"></script>
 </body>
 </html>

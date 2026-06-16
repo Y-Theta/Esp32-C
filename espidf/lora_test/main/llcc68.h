@@ -19,6 +19,7 @@ public:
         uint16_t preambleLength = 12;
         uint16_t syncWord = 0x1424;
     };
+
     /*
      * 引脚定义
      */
@@ -43,12 +44,16 @@ public:
     static constexpr uint8_t OPCODE_SET_TX_PARAMS         = 0x8E;
     static constexpr uint8_t OPCODE_SET_BUFFER_BASE_ADDR  = 0x8F;
     static constexpr uint8_t OPCODE_WRITE_BUFFER          = 0x0E;
+    static constexpr uint8_t OPCODE_READ_BUFFER           = 0x1E;
     static constexpr uint8_t OPCODE_SET_MODULATION_PARAMS = 0x8B;
     static constexpr uint8_t OPCODE_SET_PACKET_PARAMS     = 0x8C;
     static constexpr uint8_t OPCODE_SET_DIO_IRQ_PARAMS    = 0x08;
     static constexpr uint8_t OPCODE_CLR_IRQ_STATUS        = 0x02;
     static constexpr uint8_t OPCODE_GET_IRQ_STATUS        = 0x12;
+    static constexpr uint8_t OPCODE_GET_RX_BUFFER_STATUS  = 0x13;
+    static constexpr uint8_t OPCODE_GET_PACKET_STATUS     = 0x14;
     static constexpr uint8_t OPCODE_SET_TX                = 0x83;
+    static constexpr uint8_t OPCODE_SET_RX                = 0x82;
     static constexpr uint8_t OPCODE_GET_STATUS            = 0xC0;
     static constexpr uint8_t OPCODE_CALIBRATE_IMAGE       = 0x98;
     static constexpr uint8_t OPCODE_SET_DIO2_AS_RF_SWITCH_CTRL = 0x9D;
@@ -63,8 +68,16 @@ public:
     /*
      * IRQ flags
      */
-    static constexpr uint16_t IRQ_TX_DONE = 0x0001;
-    static constexpr uint16_t IRQ_TIMEOUT = 0x0200;
+    static constexpr uint16_t IRQ_TX_DONE         = 0x0001;
+    static constexpr uint16_t IRQ_RX_DONE         = 0x0002;
+    static constexpr uint16_t IRQ_PREAMBLE_DETECTED = 0x0004;
+    static constexpr uint16_t IRQ_SYNC_WORD_VALID = 0x0008;
+    static constexpr uint16_t IRQ_HEADER_VALID    = 0x0010;
+    static constexpr uint16_t IRQ_HEADER_ERR      = 0x0020;
+    static constexpr uint16_t IRQ_CRC_ERR         = 0x0040;
+    static constexpr uint16_t IRQ_CAD_DONE        = 0x0080;
+    static constexpr uint16_t IRQ_CAD_DETECTED    = 0x0100;
+    static constexpr uint16_t IRQ_TIMEOUT         = 0x0200;
 
 public:
     LLCC68();
@@ -72,12 +85,49 @@ public:
 
     esp_err_t init();
 
-    esp_err_t applyConfig(const Config &config);    
+    esp_err_t applyConfig(const Config &config);
+
     esp_err_t setPacketParams(uint8_t payloadLen, uint16_t preambleLen = 12);
+
     esp_err_t writeBuffer(const uint8_t *data, uint8_t len);
+
+    /*
+     * 新增：读取接收 Buffer
+     *
+     * data: 输出数据缓存
+     * len: 输出实际 payload 长度
+     * maxLen: data 最大容量
+     */
+    esp_err_t readBuffer(uint8_t *data, uint8_t *len, uint8_t maxLen = 255);
+
     esp_err_t clearIrq(uint16_t irq);
+
     esp_err_t setTx(uint32_t timeoutRtc);
+
+    /*
+     * 新增：进入接收模式
+     *
+     * timeoutRtc:
+     *   0x000000 表示无超时，持续接收
+     *   其他值为芯片 RTC tick 超时时间
+     */
+    esp_err_t setRx(uint32_t timeoutRtc);
+
     esp_err_t getIrqStatus(uint16_t *irq);
+
+    /*
+     * 新增：获取 RX buffer 状态
+     */
+    esp_err_t getRxBufferStatus(
+        uint8_t *payloadLen,
+        uint8_t *rxStartBufferPointer
+    );
+
+    /*
+     * 新增：获取最近一个包的 RSSI / SNR
+     */
+    esp_err_t getPacketStatus(int *rssi, float *snr);
+
     bool isDio1High() const;
 
 private:

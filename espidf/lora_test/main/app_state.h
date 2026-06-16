@@ -1,11 +1,26 @@
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 #include "llcc68.h"
 
 class AppState {
+public:
+    enum class LoraMode {
+        TX,
+        RX
+    };
+
+    struct RxMessage {
+        std::string message;
+        int rssi;
+        float snr;
+    };
+
 public:
     static AppState& instance();
 
@@ -20,6 +35,27 @@ public:
     SemaphoreHandle_t configMutex() const;
     SemaphoreHandle_t radioMutex() const;
 
+    /*
+     * LoRa 模式
+     */
+    void setLoraModeTx();
+    void setLoraModeRx();
+    bool isLoraTxMode();
+    bool isLoraRxMode();
+    const char *getLoraModeString();
+
+    /*
+     * 发送队列
+     */
+    bool enqueueTxMessage(const char *msg);
+    bool popTxMessage(std::string& msg);
+
+    /*
+     * 接收缓存
+     */
+    void pushRxMessage(const std::string& msg, int rssi, float snr);
+    std::vector<RxMessage> popRxMessages();
+
 private:
     AppState() = default;
     AppState(const AppState&) = delete;
@@ -32,4 +68,14 @@ private:
     SemaphoreHandle_t radioMutex_ = nullptr;
 
     volatile bool needApplyConfig_ = false;
+
+    LoraMode loraMode_ = LoraMode::TX;
+
+    std::vector<std::string> txQueue_;
+    std::vector<RxMessage> rxQueue_;
+
+    /*
+     * 这里直接复用 configMutex_ 来保护 mode 和队列
+     * 如果你希望更细粒度，也可以再单独加一个 queueMutex_
+     */
 };
