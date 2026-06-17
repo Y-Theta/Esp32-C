@@ -461,8 +461,19 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(webServer.start());
 
     /*
-     * LoRa 任务放 CPU1
+     * LoRa 任务：
+     * - 单核芯片，例如 ESP32-C5：不指定核心
+     * - 多核芯片，例如 ESP32 / ESP32-S3：固定到 CPU1
      */
+#if CONFIG_FREERTOS_UNICORE
+    BaseType_t ret = xTaskCreate(
+        lora_task,
+        "lora_task",
+        6144,
+        nullptr,
+        5,
+        nullptr);
+#else
     BaseType_t ret = xTaskCreatePinnedToCore(
         lora_task,
         "lora_task",
@@ -471,6 +482,13 @@ extern "C" void app_main(void)
         5,
         nullptr,
         1);
+#endif
+
+    if (ret != pdPASS)
+    {
+        ESP_LOGE(TAG, "create lora_task failed");
+        return;
+    }
 
     if (ret != pdPASS)
     {

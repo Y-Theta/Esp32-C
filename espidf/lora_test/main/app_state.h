@@ -73,9 +73,4 @@ private:
 
     std::vector<std::string> txQueue_;
     std::vector<RxMessage> rxQueue_;
-
-    /*
-     * 这里直接复用 configMutex_ 来保护 mode 和队列
-     * 如果你希望更细粒度，也可以再单独加一个 queueMutex_
-     */
 };
