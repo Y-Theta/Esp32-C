@@ -2,18 +2,18 @@
   "C_Cpp.intelliSenseEngine": "default",
   "idf.extensionActivationMode": "always",
   "idf.openOcdConfigs": [
-    "board/esp32-wrover-kit-3.3v.cfg"
+    "board/esp32c5-builtin.cfg"
   ],
-  "idf.portWin": "COM8",
+  "idf.portWin": "COM9",
   "idf.currentSetup": "D:\\Cache\\.espressif\\v5.5.4\\esp-idf",
   "idf.customExtraVars": {
-    "IDF_TARGET": "esp32"
+    "IDF_TARGET": "esp32c5"
   },
   "clangd.path": "C:\\Espressif\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=d:\\Code\\Esp32-C\\espidf\\hello_world\\build"
-],
-"idf.flashType": "UART"
+    "--compile-commands-dir=d:\\Code\\Esp32-C\\espidf\\lora_test\\build"
+  ],
+  "idf.flashType": "UART"
 }

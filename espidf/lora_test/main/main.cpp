@@ -165,67 +165,66 @@ static void lora_task(void *arg)
 
     AppState &state = AppState::instance();
 
-    ESP_ERROR_CHECK(radio.init());
-
+    esp_err_t err = radio.init();
+    if (err != ESP_OK)
     {
-        LLCC68::Config cfg = state.getConfig();
-
-        xSemaphoreTake(state.radioMutex(), portMAX_DELAY);
-        ESP_ERROR_CHECK(radio.applyConfig(cfg));
-        xSemaphoreGive(state.radioMutex());
+        ESP_LOGE(TAG, "radio.init failed: %s", esp_err_to_name(err));
     }
 
     while (1)
     {
         LLCC68::Config cfg = state.getConfig();
 
-        /*
-         * 如果有配置更新，重新应用
-         */
         if (state.takeNeedApply())
         {
             ESP_LOGI(TAG, "Applying new LoRa config");
 
-            xSemaphoreTake(state.radioMutex(), portMAX_DELAY);
-            esp_err_t err = radio.applyConfig(cfg);
-            xSemaphoreGive(state.radioMutex());
-
-            if (err != ESP_OK)
+            if (xSemaphoreTake(state.radioMutex(), pdMS_TO_TICKS(1000)) == pdTRUE)
             {
-                ESP_LOGE(TAG, "radio.applyConfig failed: %s", esp_err_to_name(err));
-                vTaskDelay(pdMS_TO_TICKS(1000));
+                err = radio.applyConfig(cfg);
+                xSemaphoreGive(state.radioMutex());
+
+                if (err != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "radio.applyConfig failed: %s", esp_err_to_name(err));
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+                    continue;
+                }
+
+                ESP_LOGI(TAG, "LoRa config applied");
+            }
+            else
+            {
+                ESP_LOGW(TAG, "radio mutex timeout while applying config");
+                vTaskDelay(pdMS_TO_TICKS(500));
                 continue;
             }
-
-            ESP_LOGI(TAG, "LoRa config applied");
         }
 
-        /*
-         * 发送模式
-         */
         if (state.isLoraTxMode())
         {
             std::string txMsg;
 
-            /*
-             * 取待发送消息
-             * 如果没有消息，就简单延时，不刷屏
-             */
-            if (!state.popTxMessage(txMsg))
+            if (!state.popTxMessage(txMsg) || txMsg.empty())
             {
                 vTaskDelay(pdMS_TO_TICKS(100));
                 continue;
             }
 
-            if (txMsg.empty())
+            if (txMsg.length() > 255)
             {
-                vTaskDelay(pdMS_TO_TICKS(100));
+                ESP_LOGW(TAG, "TX message too long: %u", static_cast<unsigned>(txMsg.length()));
+                txMsg.resize(255);
+            }
+
+            if (xSemaphoreTake(state.radioMutex(), pdMS_TO_TICKS(1000)) != pdTRUE)
+            {
+                ESP_LOGW(TAG, "radio mutex timeout in TX");
+                vTaskDelay(pdMS_TO_TICKS(500));
                 continue;
             }
 
-            xSemaphoreTake(state.radioMutex(), portMAX_DELAY);
-
-            esp_err_t err = radio.setPacketParams(static_cast<uint8_t>(txMsg.length()));
+            err = radio.setPacketParams(static_cast<uint8_t>(txMsg.length()));
 
             if (err == ESP_OK)
             {
@@ -241,7 +240,7 @@ static void lora_task(void *arg)
 
             if (err == ESP_OK)
             {
-                ESP_LOGI(TAG, "TX => %s", txMsg.c_str());
+                ESP_LOGI(TAG, "TX len=%u", static_cast<unsigned>(txMsg.length()));
                 err = radio.setTx(0x000000);
             }
 
@@ -262,7 +261,7 @@ static void lora_task(void *arg)
 
                 if (wait_ms >= 5000)
                 {
-                    ESP_LOGW(TAG, "wait DIO1 timeout");
+                    ESP_LOGW(TAG, "wait TX DIO1 timeout");
                     break;
                 }
             }
@@ -272,7 +271,7 @@ static void lora_task(void *arg)
 
             if (err == ESP_OK)
             {
-                ESP_LOGI(TAG, "IRQ = 0x%04X", irq);
+                ESP_LOGI(TAG, "TX IRQ = 0x%04X", irq);
                 radio.clearIrq(irq);
 
                 if (irq & LLCC68::IRQ_TX_DONE)
@@ -295,20 +294,16 @@ static void lora_task(void *arg)
             continue;
         }
 
-        /*
-         * 接收模式
-         * 这里假设你的 LLCC68 具有接收相关接口：
-         * - setRx(...)
-         * - readBuffer(...)
-         * - getIrqStatus(...)
-         * - clearIrq(...)
-         * 如果你的驱动接口名字不同，替换成你实际的接口即可。
-         */
         if (state.isLoraRxMode())
         {
-            xSemaphoreTake(state.radioMutex(), portMAX_DELAY);
+            if (xSemaphoreTake(state.radioMutex(), pdMS_TO_TICKS(1000)) != pdTRUE)
+            {
+                ESP_LOGW(TAG, "radio mutex timeout in RX");
+                vTaskDelay(pdMS_TO_TICKS(500));
+                continue;
+            }
 
-            esp_err_t err = radio.setPacketParams(255);
+            err = radio.setPacketParams(255);
 
             if (err == ESP_OK)
             {
@@ -328,10 +323,8 @@ static void lora_task(void *arg)
                 continue;
             }
 
-            /*
-             * 等待中断
-             */
             uint32_t wait_ms = 0;
+
             while (!radio.isDio1High())
             {
                 vTaskDelay(pdMS_TO_TICKS(10));
@@ -339,10 +332,6 @@ static void lora_task(void *arg)
 
                 if (wait_ms >= 1000)
                 {
-                    /*
-                     * 接收超时后继续下一轮
-                     * 如果你希望连续接收，也可以不做超时退出。
-                     */
                     break;
                 }
             }
@@ -362,35 +351,32 @@ static void lora_task(void *arg)
                     uint8_t buf[255] = {};
                     uint8_t len = 0;
 
-                    /*
-                     * 这里按你驱动实际接口调整：
-                     * 常见是 readBuffer(offset, buf, len)
-                     * 或者 readBuffer(buf, len)
-                     */
                     err = radio.readBuffer(buf, &len);
 
-                    if (err == ESP_OK && len > 0)
+                    if (err == ESP_OK && len > 0 && len <= sizeof(buf))
                     {
                         std::string msg(
-                            reinterpret_cast<char *>(buf),
-                            reinterpret_cast<char *>(buf) + len);
+                            reinterpret_cast<const char *>(buf),
+                            reinterpret_cast<const char *>(buf) + len);
 
-                        /*
-                         * 这里 RSSI/SNR 如果你的驱动有接口可以取，
-                         * 没有的话可以先传 0。
-                         */
                         int rssi = 0;
                         float snr = 0.0f;
 
-                        radio.getPacketStatus(&rssi, &snr);
+                        esp_err_t status_err = radio.getPacketStatus(&rssi, &snr);
+                        if (status_err != ESP_OK)
+                        {
+                            ESP_LOGW(TAG, "getPacketStatus failed: %s", esp_err_to_name(status_err));
+                        }
 
                         state.pushRxMessage(msg, rssi, snr);
 
-                        ESP_LOGI(TAG, "RX => %s", msg.c_str());
+                        ESP_LOGI(TAG, "RX len=%u RSSI=%d SNR=%.1f", len, rssi, snr);
                     }
                     else
                     {
-                        ESP_LOGW(TAG, "readBuffer failed or empty");
+                        ESP_LOGW(TAG, "readBuffer failed or invalid len=%u err=%s",
+                                 len,
+                                 esp_err_to_name(err));
                     }
                 }
 
@@ -407,7 +393,6 @@ static void lora_task(void *arg)
             }
 
             xSemaphoreGive(state.radioMutex());
-
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
@@ -465,14 +450,15 @@ extern "C" void app_main(void)
      * - 单核芯片，例如 ESP32-C5：不指定核心
      * - 多核芯片，例如 ESP32 / ESP32-S3：固定到 CPU1
      */
+    BaseType_t ret = pdTRUE;
 #if CONFIG_FREERTOS_UNICORE
-    BaseType_t ret = xTaskCreate(
-        lora_task,
-        "lora_task",
-        6144,
-        nullptr,
-        5,
-        nullptr);
+    // BaseType_t ret = xTaskCreate(
+    //     lora_task,
+    //     "lora_task",
+    //     8192,
+    //     nullptr,
+    //     5,
+    //     nullptr);
 #else
     BaseType_t ret = xTaskCreatePinnedToCore(
         lora_task,
@@ -483,12 +469,6 @@ extern "C" void app_main(void)
         nullptr,
         1);
 #endif
-
-    if (ret != pdPASS)
-    {
-        ESP_LOGE(TAG, "create lora_task failed");
-        return;
-    }
 
     if (ret != pdPASS)
     {
