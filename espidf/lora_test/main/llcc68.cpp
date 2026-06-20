@@ -16,7 +16,7 @@ LLCC68::LLCC68()
 
 void LLCC68::waitWhileBusy() const
 {
-    while (gpio_get_level(PIN_NUM_BUSY) == 1) {
+    while (gpio_get_level(RADIO_PIN_NUM_BUSY) == 1) {
         esp_rom_delay_us(10);
     }
 }
@@ -185,10 +185,10 @@ esp_err_t LLCC68::setDio2AsRfSwitch()
 
 esp_err_t LLCC68::reset()
 {
-    gpio_set_level(PIN_NUM_RST, 0);
+    gpio_set_level(RADIO_PIN_NUM_RST, 0);
     vTaskDelay(pdMS_TO_TICKS(10));
 
-    gpio_set_level(PIN_NUM_RST, 1);
+    gpio_set_level(RADIO_PIN_NUM_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(20));
 
     waitWhileBusy();
@@ -656,15 +656,15 @@ esp_err_t LLCC68::printStatus()
 
 bool LLCC68::isDio1High() const
 {
-    return gpio_get_level(PIN_NUM_DIO1) == 1;
+    return gpio_get_level(RADIO_PIN_NUM_DIO1) == 1;
 }
 
 esp_err_t LLCC68::init()
 {
     gpio_config_t io_conf = {};
     io_conf.pin_bit_mask =
-        (1ULL << PIN_NUM_BUSY) |
-        (1ULL << PIN_NUM_DIO1);
+        (1ULL << RADIO_PIN_NUM_BUSY) |
+        (1ULL << RADIO_PIN_NUM_DIO1);
     io_conf.mode = GPIO_MODE_INPUT;
     io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
     io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -676,7 +676,7 @@ esp_err_t LLCC68::init()
     }
 
     gpio_config_t out_conf = {};
-    out_conf.pin_bit_mask = (1ULL << PIN_NUM_RST);
+    out_conf.pin_bit_mask = (1ULL << RADIO_PIN_NUM_RST);
     out_conf.mode = GPIO_MODE_OUTPUT;
     out_conf.pull_up_en = GPIO_PULLUP_DISABLE;
     out_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -688,9 +688,9 @@ esp_err_t LLCC68::init()
     }
 
     spi_bus_config_t buscfg = {};
-    buscfg.mosi_io_num = PIN_NUM_MOSI;
-    buscfg.miso_io_num = PIN_NUM_MISO;
-    buscfg.sclk_io_num = PIN_NUM_CLK;
+    buscfg.mosi_io_num = RADIO_PIN_NUM_MOSI;
+    buscfg.miso_io_num = RADIO_PIN_NUM_MISO;
+    buscfg.sclk_io_num = RADIO_PIN_NUM_CLK;
     buscfg.quadwp_io_num = -1;
     buscfg.quadhd_io_num = -1;
     buscfg.max_transfer_sz = 260;
@@ -706,9 +706,9 @@ esp_err_t LLCC68::init()
     }
 
     spi_device_interface_config_t devcfg = {};
-    devcfg.clock_speed_hz = 2000000;
+    devcfg.clock_speed_hz = 8*1000* 1000;
     devcfg.mode = 0;
-    devcfg.spics_io_num = PIN_NUM_CS;
+    devcfg.spics_io_num = RADIO_PIN_NUM_CS;
     devcfg.queue_size = 1;
 
     err = spi_bus_add_device(

@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
+#include "config.h"
 
 class LLCC68 {
 public:
@@ -19,20 +20,6 @@ public:
         uint16_t preambleLength = 12;
         uint16_t syncWord = 0x1424;
     };
-
-    /*
-     * 引脚定义
-     */
-    static constexpr gpio_num_t PIN_NUM_MISO = GPIO_NUM_19;
-    static constexpr gpio_num_t PIN_NUM_MOSI = GPIO_NUM_23;
-    static constexpr gpio_num_t PIN_NUM_CLK  = GPIO_NUM_18;
-    static constexpr gpio_num_t PIN_NUM_CS   = GPIO_NUM_5;
-
-    static constexpr gpio_num_t PIN_NUM_BUSY = GPIO_NUM_4;
-    static constexpr gpio_num_t PIN_NUM_RST  = GPIO_NUM_27;
-    static constexpr gpio_num_t PIN_NUM_DIO1 = GPIO_NUM_26;
-
-    static constexpr spi_host_device_t RADIO_SPI_HOST = SPI2_HOST;
 
     /*
      * LLCC68 opcodes

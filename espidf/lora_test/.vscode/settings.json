@@ -4,8 +4,8 @@
   "idf.openOcdConfigs": [
     "board/esp32c5-builtin.cfg"
   ],
-  "idf.portWin": "COM9",
-  "idf.currentSetup": "D:\\Cache\\.espressif\\v5.5.4\\esp-idf",
+  "idf.portWin": "COM5",
+  "idf.currentSetup": "D:\\IDE\\.espressif\\v5.5.4\\esp-idf",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32c5"
   },
