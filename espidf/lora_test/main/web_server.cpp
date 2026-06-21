@@ -13,6 +13,7 @@
 #include "esp_http_server.h"
 
 #include "app_state.h"
+#include "config_storage.h"
 
 #define WIFI_AP_SSID      "LLCC68_Config"
 
@@ -280,6 +281,7 @@ esp_err_t WebServer::apiConfigPostHandler(httpd_req_t *req)
     state.setConfig(newCfg);
     state.setNeedApply(true);
 
+    ConfigStorage::save(newCfg); 
     httpd_resp_set_type(req, "application/json; charset=utf-8");
 
     return httpd_resp_sendstr(

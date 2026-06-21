@@ -436,77 +436,77 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "WS2812B on GPIO%d initialized", LED_STRIP_GPIO);
 
-        esp_err_t err;
+    esp_err_t err;
 
-        AppState &state = AppState::instance();
+    /*
+     * NVS
+     */
+    err = nvs_flash_init();
 
-        if (!state.init())
-        {
-            ESP_LOGE(TAG, "AppState init failed");
-            return;
-        }
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ESP_ERROR_CHECK(nvs_flash_init());
+    }
+    else
+    {
+        ESP_ERROR_CHECK(err);
+    }
 
-        /*
-         * NVS
-         */
-        err = nvs_flash_init();
+    AppState &state = AppState::instance();
 
-        if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
-        {
-            ESP_ERROR_CHECK(nvs_flash_erase());
-            ESP_ERROR_CHECK(nvs_flash_init());
-        }
-        else
-        {
-            ESP_ERROR_CHECK(err);
-        }
+    if (!state.init())
+    {
+        ESP_LOGE(TAG, "AppState init failed");
+        return;
+    }
 
-        /*
-         * SPIFFS
-         */
-        ESP_ERROR_CHECK(spiffs_init());
+    /*
+     * SPIFFS
+     */
+    ESP_ERROR_CHECK(spiffs_init());
 
-        /*
-         * Wi-Fi AP
-         */
-        ESP_ERROR_CHECK(wifi_init_softap());
+    /*
+     * Wi-Fi AP
+     */
+    ESP_ERROR_CHECK(wifi_init_softap());
 
-        /*
-         * Web Server
-         */
-        static WebServer webServer;
-        ESP_ERROR_CHECK(webServer.start());
+    /*
+     * Web Server
+     */
+    static WebServer webServer;
+    ESP_ERROR_CHECK(webServer.start());
 
-        BaseType_t ret = pdTRUE;
-        /*
-         * LoRa 任务：
-         * - 单核芯片，例如 ESP32-C5：不指定核心
-         * - 多核芯片，例如 ESP32 / ESP32-S3：固定到 CPU1
-         */
-    #if CONFIG_FREERTOS_UNICORE
-        ret = xTaskCreate(
-            lora_task,
-            "lora_task",
-            8192,
-            nullptr,
-            5,
-            nullptr);
-    #else
-        BaseType_t ret = xTaskCreatePinnedToCore(
-            lora_task,
-            "lora_task",
-            6144,
-            nullptr,
-            5,
-            nullptr,
-            1);
-    #endif
+    BaseType_t ret = pdTRUE;
+    /*
+     * LoRa 任务：
+     * - 单核芯片，例如 ESP32-C5：不指定核心
+     * - 多核芯片，例如 ESP32 / ESP32-S3：固定到 CPU1
+     */
+#if CONFIG_FREERTOS_UNICORE
+    ret = xTaskCreate(
+        lora_task,
+        "lora_task",
+        8192,
+        nullptr,
+        5,
+        nullptr);
+#else
+    BaseType_t ret = xTaskCreatePinnedToCore(
+        lora_task,
+        "lora_task",
+        6144,
+        nullptr,
+        5,
+        nullptr,
+        1);
+#endif
 
-        if (ret != pdPASS)
-        {
-            ESP_LOGE(TAG, "create lora_task failed");
-            return;
-        }
+    if (ret != pdPASS)
+    {
+        ESP_LOGE(TAG, "create lora_task failed");
+        return;
+    }
 
-        ESP_LOGI(TAG, "app_main done");
+    ESP_LOGI(TAG, "app_main done");
 }

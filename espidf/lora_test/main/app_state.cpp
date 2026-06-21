@@ -1,6 +1,7 @@
 #include "app_state.h"
 
 #include "esp_log.h"
+#include "config_storage.h"
 
 static const char *TAG = "AppState";
 
@@ -37,6 +38,12 @@ bool AppState::init()
     config_.syncWord = 0x1424;
 
     needApplyConfig_ = false;
+
+    if (ConfigStorage::load(config_)) {
+        ESP_LOGW(TAG, "no saved config, using defaults");
+        setConfig(config_);
+    }
+
     loraMode_ = LoraMode::TX;
 
     txQueue_.clear();
