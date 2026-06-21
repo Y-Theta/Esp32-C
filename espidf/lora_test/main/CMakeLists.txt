@@ -4,7 +4,8 @@ idf_component_register(SRCS
                             "web_server.cpp"
                             "llcc68.cpp"
                             "config_storage.cpp"
-                       PRIV_REQUIRES spi_flash
+                       PRIV_REQUIRES 
+                            spi_flash
                        INCLUDE_DIRS 
                             "."
                        REQUIRES 
