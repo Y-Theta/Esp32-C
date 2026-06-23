@@ -9,6 +9,7 @@
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
+#include <string>
 
 #include "camera/hal_config.h"
 
@@ -17,11 +18,10 @@
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
 
-#define WIFI_RETRY_ATTEMPT 3;
-#define CONFIG_FILE_PATH "/config.json"
+#define WIFI_RETRY_ATTEMPT 3
+#define CONFIG_FILE_PATH "/tmp/config.json"
 
 namespace CONFIG {
-// Default config
 struct SystemConfig_t {
     std::string wifiSsid = "";
     std::string wifiPass = "";

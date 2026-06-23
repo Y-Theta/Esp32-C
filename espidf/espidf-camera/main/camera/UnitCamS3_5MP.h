@@ -1,10 +1,10 @@
-
-#include <Arduino.h>
-#include <ArduinoJson.h>
-#include <LittleFS.h>
-#include <WiFi.h>
 #include <esp_camera.h>
-#include <stdio.h>
+#include <esp_wifi.h>
+#include <esp_http_client.h>
+#include <cJSON.h>
+#include <esp_vfs.h>
+#include <string>
+#include <functional>
 
 #include <common.h>
 
@@ -14,7 +14,6 @@ protected:
     CONFIG::SystemConfig_t _config;
 
 private:
-    /// @brief 连接重试计数器
     int wifi_retry_counter;
 
     void cam_init();

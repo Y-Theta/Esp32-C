@@ -1,4 +1,7 @@
 #include "camera/UnitCamS3_5MP.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 void UnitCamS3_5MP::SetLed(bool state) {
     gpio_set_level((gpio_num_t)HAL_PIN_LED, state ? 0 : 1);
@@ -7,70 +10,117 @@ void UnitCamS3_5MP::SetLed(bool state) {
 void UnitCamS3_5MP::LoadConfig() {
     ESP_LOGI(TAG, "load config");
 
-    // Check exist
-    if (!LittleFS.exists(CONFIG_FILE_PATH)) {
+    FILE *file = fopen(CONFIG_FILE_PATH, "r");
+    if (!file) {
         ESP_LOGI(TAG, "file doesn't exist! %s", CONFIG_FILE_PATH);
         return;
     }
 
-    // Try open
-    File file = LittleFS.open(CONFIG_FILE_PATH, "r");
-    if (!file) {
+    fseek(file, 0, SEEK_END);
+    long fsize = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    char *buffer = (char *)malloc(fsize + 1);
+    fread(buffer, 1, fsize, file);
+    buffer[fsize] = '\0';
+    fclose(file);
+
+    cJSON *doc = cJSON_Parse(buffer);
+    free(buffer);
+
+    if (!doc) {
+        ESP_LOGI(TAG, "json parse failed");
         return;
     }
 
-    // Parse json
-    JsonDocument doc;
-    deserializeJson(doc, file);
+    cJSON *item = cJSON_GetObjectItem(doc, "wifiSsid");
+    if (item && cJSON_IsString(item)) {
+        _config.wifiSsid = item->valuestring;
+    }
 
-    // Copy into buffer
-    _config.wifiSsid = doc["wifiSsid"].as<std::string>();
-    _config.wifiPass = doc["wifiPass"].as<std::string>();
-    _config.startPoster = doc["startPoster"].as<std::string>();
-    _config.waitApFirst = doc["waitApFirst"].as<std::string>();
-    _config.nickname = doc["nickname"].as<std::string>();
-    _config.timeZone = doc["timeZone"].as<std::string>();
+    item = cJSON_GetObjectItem(doc, "wifiPass");
+    if (item && cJSON_IsString(item)) {
+        _config.wifiPass = item->valuestring;
+    }
 
-    _config.postInterval = doc["postInterval"];
-    _config.postServer = doc["postServer"].as<std::string>();
-    _config.postPort = doc["postPort"];
+    item = cJSON_GetObjectItem(doc, "startPoster");
+    if (item && cJSON_IsString(item)) {
+        _config.startPoster = item->valuestring;
+    }
 
-    _config.jpegQuantity = doc["jpegQuantity"];
-    _config.frameSize = doc["frameSize"].as<framesize_t>();
+    item = cJSON_GetObjectItem(doc, "waitApFirst");
+    if (item && cJSON_IsString(item)) {
+        _config.waitApFirst = item->valuestring;
+    }
 
-    file.close();
+    item = cJSON_GetObjectItem(doc, "nickname");
+    if (item && cJSON_IsString(item)) {
+        _config.nickname = item->valuestring;
+    }
+
+    item = cJSON_GetObjectItem(doc, "timeZone");
+    if (item && cJSON_IsString(item)) {
+        _config.timeZone = item->valuestring;
+    }
+
+    item = cJSON_GetObjectItem(doc, "postInterval");
+    if (item && cJSON_IsNumber(item)) {
+        _config.postInterval = item->valueint;
+    }
+
+    item = cJSON_GetObjectItem(doc, "postServer");
+    if (item && cJSON_IsString(item)) {
+        _config.postServer = item->valuestring;
+    }
+
+    item = cJSON_GetObjectItem(doc, "postPort");
+    if (item && cJSON_IsNumber(item)) {
+        _config.postPort = item->valueint;
+    }
+
+    item = cJSON_GetObjectItem(doc, "jpegQuantity");
+    if (item && cJSON_IsNumber(item)) {
+        _config.jpegQuantity = item->valueint;
+    }
+
+    item = cJSON_GetObjectItem(doc, "frameSize");
+    if (item && cJSON_IsNumber(item)) {
+        _config.frameSize = item->valueint;
+    }
+
+    cJSON_Delete(doc);
 }
 
 void UnitCamS3_5MP::SaveConfig() {
     ESP_LOGI(TAG, "save system config");
 
-    // Try open
-    File file = LittleFS.open(CONFIG_FILE_PATH, "w");
+    FILE *file = fopen(CONFIG_FILE_PATH, "w");
     if (!file) {
         ESP_LOGI(TAG, "open {%s} failed", CONFIG_FILE_PATH);
         return;
     }
 
-    // Parse json
-    JsonDocument doc;
+    cJSON *doc = cJSON_CreateObject();
 
-    doc["wifiSsid"] = _config.wifiSsid;
-    doc["wifiPass"] = _config.wifiPass;
-    doc["startPoster"] = _config.startPoster;
-    doc["waitApFirst"] = _config.waitApFirst;
-    doc["nickname"] = _config.nickname;
-    doc["timeZone"] = _config.timeZone;
+    cJSON_AddStringToObject(doc, "wifiSsid", _config.wifiSsid.c_str());
+    cJSON_AddStringToObject(doc, "wifiPass", _config.wifiPass.c_str());
+    cJSON_AddStringToObject(doc, "startPoster", _config.startPoster.c_str());
+    cJSON_AddStringToObject(doc, "waitApFirst", _config.waitApFirst.c_str());
+    cJSON_AddStringToObject(doc, "nickname", _config.nickname.c_str());
+    cJSON_AddStringToObject(doc, "timeZone", _config.timeZone.c_str());
 
-    doc["postInterval"] = _config.postInterval;
-    doc["postServer"] = _config.postServer;
-    doc["postPort"] = _config.postPort;
+    cJSON_AddNumberToObject(doc, "postInterval", _config.postInterval);
+    cJSON_AddStringToObject(doc, "postServer", _config.postServer.c_str());
+    cJSON_AddNumberToObject(doc, "postPort", _config.postPort);
 
-    doc["jpegQuantity"] = _config.jpegQuantity;
-    doc["frameSize"] = _config.frameSize;
+    cJSON_AddNumberToObject(doc, "jpegQuantity", _config.jpegQuantity);
+    cJSON_AddNumberToObject(doc, "frameSize", _config.frameSize);
 
-    serializeJson(doc, file);
-
-    file.close();
+    char *json_str = cJSON_Print(doc);
+    fputs(json_str, file);
+    free(json_str);
+    cJSON_Delete(doc);
+    fclose(file);
 }
 
 CONFIG::SystemConfig_t UnitCamS3_5MP::GetConfig() {
@@ -88,23 +138,39 @@ void UnitCamS3_5MP::SetConfig(CONFIG::SystemConfig_t config, CONFIG::ConfigType 
 
 void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t *buffer)> processPhoto) {
     camera_fb_t *fb = NULL;
+    
     if (OnTakePhotoStart != nullptr) {
         OnTakePhotoStart();
     }
+    
     SetLed(1);
+    
     fb = esp_camera_fb_get();
     if (!fb) {
+        ESP_LOGI(TAG, "Failed to get camera frame");
         SetLed(0);
+        if (OnTakePhotoEnd != nullptr) {
+            OnTakePhotoEnd();
+        }
         return;
     }
-    ESP_LOGI(TAG, "captrued height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
+    
+    ESP_LOGI(TAG, "captured height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
+    
     if (processPhoto) {
-        processPhoto(fb);
+        try {
+            processPhoto(fb);
+        } catch (...) {
+            ESP_LOGI(TAG, "Exception occurred during photo processing");
+        }
     }
+    
     esp_camera_fb_return(fb);
     fb = NULL;
+    
     if (OnTakePhotoEnd != nullptr) {
         OnTakePhotoEnd();
     }
+    
     SetLed(0);
 }

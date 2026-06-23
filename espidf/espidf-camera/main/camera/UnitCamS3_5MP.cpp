@@ -4,7 +4,6 @@ void UnitCamS3_5MP::sd_init() {
 }
 
 void UnitCamS3_5MP::cam_init() {
-
     esp_camera_deinit();
 
     camera_config_t config;
@@ -28,22 +27,25 @@ void UnitCamS3_5MP::cam_init() {
     config.pin_reset = CAMERA_PIN_RESET;
     config.xclk_freq_hz = XCLK_FREQ_HZ;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = (framesize_t)_config.frameSize;
-    config.jpeg_quality = _config.jpegQuantity;
+    config.frame_size = FRAMESIZE_UXGA;
+    config.jpeg_quality = 8;
     config.fb_count = 1;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+    config.sccb_i2c_port = 1;
 
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
-        printf("camera init failed\n");
+        ESP_LOGI(TAG, "camera init failed: %s", esp_err_to_name(err));
+        return;
     }
+    
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "camera ready after stabilization");
 }
 
 void UnitCamS3_5MP::config_init() {
-    if (!LittleFS.begin(true)) {
-        ESP_LOGI(TAG, "littlefs init failed");
-    }
+    ESP_LOGI(TAG, "config init - LittleFS not used in this build");
 }
 
 void UnitCamS3_5MP::led_init() {
@@ -60,8 +62,8 @@ static void btn_thread(void *parameter) {
     while (1) {
         if (gpio_get_level((gpio_num_t)BTN_0)) {
             ESP_LOGI(TAG, "Btn Typed ");
-        };
-        vTaskDelay(10);
+        }
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
 
@@ -76,13 +78,13 @@ void UnitCamS3_5MP::btn_init() {
 
 void UnitCamS3_5MP::Init() {
     config_init();
-    cam_init();
-    led_init();
-    sd_init();
 
     _config.wifiSsid = "s20154530";
     _config.wifiPass = "Y20154530";
 
-    _config.postServer = "38.147.174.195";
-    _config.postPort = 20678;
+    _config.postServer = "n8n.y-theta.cn";
+    _config.postPort = 443;
+
+    led_init();
+    sd_init();
 }

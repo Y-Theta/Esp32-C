@@ -1,8 +1,17 @@
 {
-    "idf.portWin": "COM5",
-    "idf.customExtraVars": {},
-    "idf.currentSetup": "D:\\Cache\\.espressif\\v5.5.4\\esp-idf",
-    "idf.openOcdConfigs": [
-        "board/esp32s3-builtin.cfg"
-    ]
+  "idf.portWin": "COM5",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32s3"
+  },
+  "idf.currentSetup": "D:\\Cache\\.espressif\\v5.5.4\\esp-idf",
+  "idf.openOcdConfigs": [
+    "board/esp32s3-builtin.cfg"
+  ],
+  "idf.flashType": "UART",
+  "clangd.path": "C:\\Espressif\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=d:\\Code\\Esp32-C\\espidf\\espidf-camera\\build"
+  ]
 }
