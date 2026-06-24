@@ -20,7 +20,7 @@
 #define WIFI_FAIL_BIT BIT1
 
 #define WIFI_RETRY_ATTEMPT 3
-#define CONFIG_FILE_PATH "/tmp/config.json"
+#define CONFIG_FILE_PATH "/spiffs/config.json"
 
 namespace CONFIG {
 struct SystemConfig_t {

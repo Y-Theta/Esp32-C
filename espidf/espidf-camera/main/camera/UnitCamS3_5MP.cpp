@@ -1,5 +1,5 @@
 #include "camera/UnitCamS3_5MP.h"
-#include "services/SettingService.h"
+#include "services/StorageService.h"
 #include "esp_log.h"
 
 static const char* TAG = "UnitCamS3_5MP";
@@ -60,8 +60,8 @@ void UnitCamS3_5MP::sd_init() {
 void UnitCamS3_5MP::cam_init() {
     esp_camera_deinit();
 
-    SettingService& settings = SettingService::getInstance();
-    const CONFIG::SystemConfig_t& config = settings.getConfig();
+    StorageService& storage = StorageService::getInstance();
+    const CONFIG::SystemConfig_t& config = storage.getConfig();
 
     camera_config_t cameraConfig;
     cameraConfig.ledc_channel = LEDC_CHANNEL_0;
@@ -156,18 +156,18 @@ void UnitCamS3_5MP::btn_init() {
 }
 
 void UnitCamS3_5MP::Init() {
-    // 初始化设置服务
-    SettingService& settings = SettingService::getInstance();
-    settings.init();
+    // 初始化存储服务
+    StorageService& storage = StorageService::getInstance();
+    storage.init();
     
     // 如果配置为空，设置默认值
-    if (settings.getConfig().wifiSsid.empty()) {
+    if (storage.getConfig().wifiSsid.empty()) {
         CONFIG::SystemConfig_t defaultConfig;
         defaultConfig.wifiSsid = "s20154530";
         defaultConfig.wifiPass = "Y20154530";
         defaultConfig.postServer = "n8n.y-theta.cn";
         defaultConfig.postPort = 443;
-        settings.setConfig(defaultConfig);
+        storage.setConfig(defaultConfig);
     }
 
     led_init();

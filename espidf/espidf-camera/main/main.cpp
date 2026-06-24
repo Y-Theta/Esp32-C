@@ -1,28 +1,28 @@
 #include "camera/UnitCamS3_5MP.h"
-#include "services/SettingService.h"
+#include "services/StorageService.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
 
 static const char* TAG = "PY260 Transfer";
 
-UnitCamS3_5MP *camera = nullptr;
+UnitCamS3_5MP* camera = nullptr;
 
 namespace Operation {
 
-static const char *boundary = "-------562164BDF";
+static const char* boundary = "-------562164BDF";
 static char constpostinfo[512];
 static char footer[32];
 
 static void init_post_data() {
-    snprintf(constpostinfo, sizeof(constpostinfo), 
+    snprintf(constpostinfo, sizeof(constpostinfo),
              "--%s\r\n"
              "Content-Disposition: form-data; name=\"image\"; filename=\"photo.jpeg\"\r\n"
              "Content-Type: image/jpeg\r\n\r\n", boundary);
     snprintf(footer, sizeof(footer), "\r\n--%s--\r\n", boundary);
 }
 
-static esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
+static esp_err_t _http_event_handler(esp_http_client_event_t* evt) {
     switch(evt->event_id) {
         case HTTP_EVENT_ERROR:
             ESP_LOGI(TAG, "HTTP_EVENT_ERROR");
@@ -51,10 +51,10 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
     return ESP_OK;
 }
 
-static void upload_photo(camera_fb_t *fb, UnitCamS3_5MP *ump) {
-    SettingService& settings = SettingService::getInstance();
-    const char *server = settings.getConfig().postServer.c_str();
-    int port = settings.getConfig().postPort;
+static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* ump) {
+    StorageService& storage = StorageService::getInstance();
+    const char* server = storage.getConfig().postServer.c_str();
+    int port = storage.getConfig().postPort;
 
     char url[256];
     snprintf(url, sizeof(url), "https://%s:%d/imgup", server, port);
@@ -91,7 +91,7 @@ static void upload_photo(camera_fb_t *fb, UnitCamS3_5MP *ump) {
 
     int written = 0;
     written += esp_http_client_write(client, constpostinfo, strlen(constpostinfo));
-    written += esp_http_client_write(client, (const char *)fb->buf, fb->len);
+    written += esp_http_client_write(client, (const char*)fb->buf, fb->len);
     written += esp_http_client_write(client, footer, strlen(footer));
     ESP_LOGI(TAG, "Total bytes written: %d / %d", written, contentLength);
 
@@ -120,5 +120,5 @@ extern "C" void app_main(void) {
     camera = new UnitCamS3_5MP();
     camera->OnProcessImage = Operation::upload_photo;
     camera->Init();
-    camera->StartForWorking();
+    camera->Start();
 }

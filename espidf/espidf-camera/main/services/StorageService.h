@@ -3,15 +3,15 @@
 #include <string>
 #include "common.h"
 
-class SettingService {
+class StorageService {
 public:
-    static SettingService& getInstance() {
-        static SettingService instance;
+    static StorageService& getInstance() {
+        static StorageService instance;
         return instance;
     }
 
-    SettingService(const SettingService&) = delete;
-    SettingService& operator=(const SettingService&) = delete;
+    StorageService(const StorageService&) = delete;
+    StorageService& operator=(const StorageService&) = delete;
 
     void init();
     void load();
@@ -29,9 +29,11 @@ public:
     void setPostConfig(const std::string& server, int port, int interval);
 
 private:
-    SettingService() = default;
-    ~SettingService() = default;
+    StorageService() = default;
+    ~StorageService() = default;
     
+    bool initSpiffs();
     CONFIG::SystemConfig_t _config;
     bool _initialized = false;
+    bool _spiffsInitialized = false;
 };

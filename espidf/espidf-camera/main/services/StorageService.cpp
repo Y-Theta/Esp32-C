@@ -1,21 +1,64 @@
-#include "services/SettingService.h"
+#include "services/StorageService.h"
 #include "esp_log.h"
+#include "esp_spiffs.h"
 #include "cJSON.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static const char* TAG = "SettingService";
+static const char* TAG = "StorageService";
 
-void SettingService::init() {
+bool StorageService::initSpiffs() {
+    if (_spiffsInitialized) return true;
+    
+    ESP_LOGI(TAG, "Initializing SPIFFS...");
+    
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = "/spiffs",
+        .partition_label = "spiffs",
+        .max_files = 5,
+        .format_if_mount_failed = true
+    };
+    
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+    
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+            ESP_LOGE(TAG, "Failed to mount or format filesystem");
+        } else if (ret == ESP_ERR_NOT_FOUND) {
+            ESP_LOGE(TAG, "Failed to find SPIFFS partition");
+        } else {
+            ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+        }
+        return false;
+    }
+    
+    size_t total = 0, used = 0;
+    ret = esp_spiffs_info(conf.partition_label, &total, &used);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "SPIFFS: total=%d bytes, used=%d bytes", total, used);
+    }
+    
+    _spiffsInitialized = true;
+    ESP_LOGI(TAG, "SPIFFS initialized successfully!");
+    return true;
+}
+
+void StorageService::init() {
     if (_initialized) return;
     
-    ESP_LOGI(TAG, "Initializing SettingService...");
+    ESP_LOGI(TAG, "Initializing StorageService...");
+    
+    if (!initSpiffs()) {
+        ESP_LOGE(TAG, "Failed to initialize SPIFFS, cannot load config!");
+        return;
+    }
+    
     load();
     _initialized = true;
 }
 
-void SettingService::load() {
+void StorageService::load() {
     ESP_LOGI(TAG, "Loading config...");
     
     FILE* file = fopen(CONFIG_FILE_PATH, "r");
@@ -78,7 +121,7 @@ void SettingService::load() {
     ESP_LOGI(TAG, "Config loaded successfully!");
 }
 
-void SettingService::save() {
+void StorageService::save() {
     ESP_LOGI(TAG, "Saving config...");
     
     FILE* file = fopen(CONFIG_FILE_PATH, "w");
@@ -112,26 +155,24 @@ void SettingService::save() {
     ESP_LOGI(TAG, "Config saved successfully!");
 }
 
-const CONFIG::SystemConfig_t& SettingService::getConfig() const {
+const CONFIG::SystemConfig_t& StorageService::getConfig() const {
     return _config;
 }
 
-void SettingService::setConfig(const CONFIG::SystemConfig_t& config) {
+void StorageService::setConfig(const CONFIG::SystemConfig_t& config) {
     _config = config;
 }
 
-void SettingService::setWifiConfig(const std::string& ssid, const std::string& password) {
+void StorageService::setWifiConfig(const std::string& ssid, const std::string& password) {
     _config.wifiSsid = ssid;
     _config.wifiPass = password;
 }
 
-void SettingService::setCameraConfig(int jpegQuality, int frameSize) {
+void StorageService::setCameraConfig(int jpegQuality, int frameSize) {
     _config.jpegQuantity = jpegQuality;
     _config.frameSize = frameSize;
 }
 
-void SettingService::setPostConfig(const std::string& server, int port, int interval) {
+void StorageService::setPostConfig(const std::string& server, int port, int interval) {
     _config.postServer = server;
-    _config.postPort = port;
-    _config.postInterval = interval;
 }
