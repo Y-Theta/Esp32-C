@@ -9,11 +9,12 @@
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
+#include "esp_camera.h"
 #include <string>
 
 #include "camera/hal_config.h"
 
-#define TAG "PY260 Transfer"
+// 避免 TAG 宏冲突，不要在全局定义 TAG
 #define WIFI_AUTHMODE WIFI_AUTH_WPA2_PSK
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
@@ -35,7 +36,7 @@ struct SystemConfig_t {
     int postInterval = 5;
 
     int jpegQuantity = 12;
-    int frameSize = (int)framesize_t::FRAMESIZE_VGA;
+    int frameSize = (int)FRAMESIZE_VGA;
 };
 
 enum ConfigType {

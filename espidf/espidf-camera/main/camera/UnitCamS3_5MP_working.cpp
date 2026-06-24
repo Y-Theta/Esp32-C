@@ -1,18 +1,22 @@
 #include "camera/UnitCamS3_5MP.h"
+#include "services/WifiService.h"
+#include "services/SettingService.h"
+#include "esp_log.h"
+
+static const char* TAG = "UnitCamS3_5MP";
 
 void UnitCamS3_5MP::Start() {
-    if (!_config.wifiSsid.empty()) {
+    SettingService& settings = SettingService::getInstance();
+    if (!settings.getConfig().wifiSsid.empty()) {
         StartForWorking();
     } else {
         StartForSetting();
     }
-
-    _config.wifiSsid = "";
-    SaveConfig();
 }
 
 static void task_take_photo(void *parameters) {
     UnitCamS3_5MP *ump = (UnitCamS3_5MP *)parameters;
+    SettingService& settings = SettingService::getInstance();
 
     while (true) {
         ESP_LOGI(TAG, "Taking photo...");
@@ -21,13 +25,20 @@ static void task_take_photo(void *parameters) {
                 ump->OnProcessImage(fb, ump);
             }
         });
-        vTaskDelay(ump->GetConfig().postInterval * 1000 / portTICK_PERIOD_MS);
+        vTaskDelay(settings.getConfig().postInterval * 1000 / portTICK_PERIOD_MS);
     }
 }
 
 void UnitCamS3_5MP::StartForWorking() {
-    connect_wifi();
+    SettingService& settings = SettingService::getInstance();
+    
+    // 初始化并连接 WiFi
+    WifiService& wifi = WifiService::getInstance();
+    wifi.init(settings.getConfig().wifiSsid, settings.getConfig().wifiPass);
+    wifi.connect();
+    
     cam_init();
+    
     BaseType_t ret = xTaskCreate(task_take_photo, "photo", 5 * 1024, this, 5, NULL);
     if (ret != pdPASS) {
         ESP_LOGI(TAG, "Failed to create photo task");

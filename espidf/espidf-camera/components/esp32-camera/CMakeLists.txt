@@ -2,13 +2,17 @@
 set(idf_version "${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}")
 
 # set conversion sources
-set(COMPONENT_SRCS
-  conversions/yuv.c
-  conversions/to_jpg.cpp
-  conversions/to_bmp.c
-  conversions/jpge.cpp
-  conversions/esp_jpg_decode.c
-  )
+set(COMPONENT_SRCS)
+
+if(CONFIG_CAMERA_CONVERTER_ENABLED)
+  list(APPEND COMPONENT_SRCS
+    conversions/yuv.c
+    conversions/to_jpg.cpp
+    conversions/to_bmp.c
+    conversions/jpge.cpp
+    conversions/esp_jpg_decode.c
+    )
+endif()
 
 set(COMPONENT_PRIV_INCLUDEDIRS
   conversions/private_include
@@ -28,22 +32,67 @@ if(IDF_TARGET STREQUAL "esp32" OR IDF_TARGET STREQUAL "esp32s2" OR IDF_TARGET ST
     driver/cam_hal.c
     driver/sccb.c
     driver/sensor.c
-    sensors/ov2640.c
-    sensors/ov3660.c
-    sensors/ov5640.c
-    sensors/ov7725.c
-    sensors/ov7670.c
-    sensors/nt99141.c
-    sensors/gc0308.c
-    sensors/gc2145.c
-    sensors/gc032a.c
-    sensors/bf3005.c
-    sensors/bf20a6.c
-    sensors/sc101iot.c
-    sensors/sc030iot.c
-    sensors/sc031gs.c
-    sensors/mega_ccm.c
     )
+  
+  if(CONFIG_OV2640_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/ov2640.c)
+  endif()
+  
+  if(CONFIG_OV3660_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/ov3660.c)
+  endif()
+  
+  if(CONFIG_OV5640_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/ov5640.c)
+  endif()
+  
+  if(CONFIG_OV7725_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/ov7725.c)
+  endif()
+  
+  if(CONFIG_OV7670_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/ov7670.c)
+  endif()
+  
+  if(CONFIG_NT99141_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/nt99141.c)
+  endif()
+  
+  if(CONFIG_GC0308_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/gc0308.c)
+  endif()
+  
+  if(CONFIG_GC2145_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/gc2145.c)
+  endif()
+  
+  if(CONFIG_GC032A_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/gc032a.c)
+  endif()
+  
+  if(CONFIG_BF3005_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/bf3005.c)
+  endif()
+  
+  if(CONFIG_BF20A6_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/bf20a6.c)
+  endif()
+  
+  if(CONFIG_SC101IOT_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/sc101iot.c)
+  endif()
+  
+  if(CONFIG_SC030IOT_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/sc030iot.c)
+  endif()
+  
+  if(CONFIG_SC031GS_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/sc031gs.c)
+  endif()
+  
+  if(CONFIG_MEGA_CCM_SUPPORT)
+    list(APPEND COMPONENT_SRCS sensors/mega_ccm.c)
+  endif()
 
   list(APPEND COMPONENT_PRIV_INCLUDEDIRS
     driver/private_include

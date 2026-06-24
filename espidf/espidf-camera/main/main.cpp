@@ -1,6 +1,10 @@
 #include "camera/UnitCamS3_5MP.h"
+#include "services/SettingService.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
+#include "esp_log.h"
+
+static const char* TAG = "PY260 Transfer";
 
 UnitCamS3_5MP *camera = nullptr;
 
@@ -30,10 +34,10 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
             ESP_LOGI(TAG, "HTTP_EVENT_HEADER_SENT");
             break;
         case HTTP_EVENT_ON_HEADER:
-            ESP_LOGI(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
+            // ESP_LOGI(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
             break;
         case HTTP_EVENT_ON_DATA:
-            ESP_LOGI(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+            // ESP_LOGI(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
             break;
         case HTTP_EVENT_ON_FINISH:
             ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH");
@@ -48,8 +52,9 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
 }
 
 static void upload_photo(camera_fb_t *fb, UnitCamS3_5MP *ump) {
-    const char *server = ump->GetConfig().postServer.c_str();
-    int port = ump->GetConfig().postPort;
+    SettingService& settings = SettingService::getInstance();
+    const char *server = settings.getConfig().postServer.c_str();
+    int port = settings.getConfig().postPort;
 
     char url[256];
     snprintf(url, sizeof(url), "https://%s:%d/imgup", server, port);
