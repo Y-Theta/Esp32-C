@@ -47,12 +47,7 @@ void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t*)> processPhoto) {
     SetLed(false);
 }
 
-void UnitCamS3_5MP::StartForSetting() {
-    ESP_LOGI(TAG, "StartForSetting called, but not implemented yet");
-    while (true) {
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-    }
-}
+
 
 void UnitCamS3_5MP::sd_init() {
 }

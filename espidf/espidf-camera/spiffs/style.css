@@ -9,45 +9,196 @@ body {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     min-height: 100vh;
     padding: 20px;
+    color: #333;
 }
 
 .container {
-    max-width: 600px;
+    max-width: 700px;
     margin: 0 auto;
     background: white;
-    border-radius: 16px;
+    border-radius: 20px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    padding: 40px;
+    padding: 30px;
+    overflow: hidden;
 }
 
 h1 {
     text-align: center;
-    color: #333;
-    margin-bottom: 30px;
+    color: #2c3e50;
+    margin-bottom: 25px;
     font-size: 28px;
     font-weight: 700;
 }
 
+/* Tab 导航 */
+.tabs {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: 25px;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.tab-button {
+    flex: 1;
+    padding: 12px 16px;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    color: #7f8c8d;
+    transition: all 0.3s ease;
+}
+
+.tab-button:hover {
+    color: #667eea;
+    background-color: rgba(102, 126, 234, 0.05);
+}
+
+.tab-button.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+}
+
+/* Tab 内容 */
+.tab-content {
+    min-height: 400px;
+}
+
+.tab-pane {
+    display: none;
+}
+
+.tab-pane.active {
+    display: block;
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+h2 {
+    color: #34495e;
+    margin-bottom: 16px;
+    font-size: 22px;
+}
+
+h3 {
+    color: #555;
+    font-size: 16px;
+    margin-bottom: 12px;
+}
+
+/* 状态卡片 */
+.status-card {
+    display: flex;
+    align-items: center;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    padding: 14px 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    color: #2c3e50;
+}
+
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: #2ecc71;
+    margin-right: 10px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* 相机控制 */
+.camera-controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.photo-container {
+    background: #f8f9fa;
+    border: 2px dashed #e0e0e0;
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.photo-preview {
+    max-width: 100%;
+    max-height: 400px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.photo-info {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 12px;
+    color: #7f8c8d;
+    font-size: 13px;
+}
+
+/* 网络列表 */
+.network-list {
+    margin-top: 16px;
+}
+
+.network-item {
+    background: #f8f9fa;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background-color 0.2s;
+}
+
+.network-item:hover {
+    background: #e9ecef;
+}
+
+.network-item .ssid {
+    font-weight: 500;
+}
+
+/* 表单样式 */
 .form-section {
-    margin-bottom: 30px;
+    margin-bottom: 24px;
     padding-bottom: 20px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid #f0f0f0;
 }
 
 .form-section:last-of-type {
     border-bottom: none;
-    margin-bottom: 0;
-}
-
-.form-section h2 {
-    color: #555;
-    font-size: 18px;
-    margin-bottom: 20px;
-    font-weight: 600;
 }
 
 .form-group {
-    margin-bottom: 20px;
+    margin-bottom: 18px;
 }
 
 .form-group label {
@@ -61,10 +212,10 @@ h1 {
 .form-group input,
 .form-group select {
     width: 100%;
-    padding: 12px 16px;
+    padding: 12px 14px;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
-    font-size: 16px;
+    font-size: 15px;
     transition: all 0.3s ease;
 }
 
@@ -75,35 +226,53 @@ h1 {
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-button {
-    width: 100%;
-    padding: 14px 24px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
+/* 按钮样式 */
+.button-group {
+    display: flex;
+    gap: 12px;
     margin-top: 20px;
 }
 
-button:hover {
+button {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    flex: 1;
+}
+
+.btn-primary:hover {
     transform: translateY(-2px);
-    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 8px 16px rgba(102, 126, 234, 0.4);
 }
 
-button:active {
-    transform: translateY(0);
-}
-
-button:disabled {
-    background: #ccc;
+.btn-primary:disabled {
+    background: #bdc3c7;
     cursor: not-allowed;
     transform: none;
 }
 
+.btn-secondary {
+    background: #f8f9fa;
+    color: #495057;
+    border: 2px solid #e0e0e0;
+    flex: 1;
+}
+
+.btn-secondary:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+/* 消息 */
 .message {
     margin-top: 20px;
     padding: 12px 16px;
@@ -125,16 +294,32 @@ button:disabled {
     display: block;
 }
 
+.message.info {
+    background: #d1ecf1;
+    color: #0c5460;
+    display: block;
+}
+
+/* 响应式设计 */
 @media (max-width: 768px) {
     .container {
-        padding: 24px;
+        padding: 20px;
     }
     
     h1 {
         font-size: 24px;
     }
     
-    .form-section h2 {
-        font-size: 16px;
+    .tabs {
+        flex-direction: column;
+    }
+    
+    .tab-button {
+        border-bottom: 1px solid #e0e0e0;
+        border-right: none;
+    }
+    
+    .camera-controls {
+        flex-direction: column;
     }
 }

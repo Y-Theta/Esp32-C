@@ -17,6 +17,7 @@ public:
     std::function<void()> OnTakePhotoEnd;
     std::function<void(int gpio)> OnBtnClick;
     std::function<void(camera_fb_t* buffer, UnitCamS3_5MP* camera)> OnProcessImage;
+    std::function<void(camera_fb_t* buffer)> OnWebPhotoTaken;
 
     void Init();
     void SetLed(bool state);
@@ -26,4 +27,8 @@ public:
     void Start();
     void StartForSetting();
     void StartForWorking();
+    
+    // Web 功能接口
+    void WebTakePhoto();
+    static UnitCamS3_5MP* GetInstance();
 };

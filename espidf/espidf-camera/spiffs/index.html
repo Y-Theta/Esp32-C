@@ -3,74 +3,142 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UnitCamS3 Configuration</title>
+    <title>UnitCamS3 配置</title>
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <div class="container">
-        <h1>UnitCamS3 配置</h1>
+        <h1>UnitCamS3</h1>
         
-        <form id="configForm">
-            <div class="form-section">
-                <h2>WiFi 设置</h2>
-                <div class="form-group">
-                    <label for="wifiSsid">WiFi 名称 (SSID)</label>
-                    <input type="text" id="wifiSsid" name="wifiSsid" required>
+        <!-- Tab 导航 -->
+        <div class="tabs">
+            <button class="tab active" data-tab="camera">📷 相机模式</button>
+            <button class="tab" data-tab="wifi">📶 网络模式</button>
+            <button class="tab" data-tab="settings">⚙️ 设置</button>
+        </div>
+        
+        <!-- Tab 内容 -->
+        <div class="tab-content">
+            <!-- 相机模式 Tab -->
+            <div id="camera-tab" class="tab-pane active">
+                <h2>Web 相机模式</h2>
+                
+                <div class="status-card">
+                    <span class="status-dot"></span>
+                    <span id="capture-status">准备就绪</span>
                 </div>
-                <div class="form-group">
-                    <label for="wifiPass">WiFi 密码</label>
-                    <input type="password" id="wifiPass" name="wifiPass">
+                
+                <div class="button-group">
+                    <button id="capture-btn" class="btn-primary">📷 拍照</button>
+                </div>
+                
+                <div id="captured-image" style="display: none;">
+                    <h3>照片预览</h3>
+                    <img id="captured-photo" alt="Captured Photo" style="width: 100%; border-radius: 8px; margin-top: 1rem;">
                 </div>
             </div>
             
-            <div class="form-section">
-                <h2>上传设置</h2>
-                <div class="form-group">
-                    <label for="postServer">服务器地址</label>
-                    <input type="text" id="postServer" name="postServer">
+            <!-- 网络模式 Tab -->
+            <div id="wifi-tab" class="tab-pane">
+                <h2>网络模式</h2>
+                <div class="status-card">
+                    <span id="wifi-status" class="status-dot"></span>
+                    <span id="wifi-status-text">当前模式：AP 模式 (SSID: M5Stack 5MP Cam)</span>
                 </div>
-                <div class="form-group">
-                    <label for="postPort">服务器端口</label>
-                    <input type="number" id="postPort" name="postPort" required>
-                </div>
-                <div class="form-group">
-                    <label for="postInterval">上传间隔 (秒)</label>
-                    <input type="number" id="postInterval" name="postInterval" required>
+                
+                <div class="button-group">
+                    <button id="connect-sta-btn" class="btn-primary">🔌 连接到 STA 模式</button>
                 </div>
             </div>
             
-            <div class="form-section">
+            <!-- 设置 Tab -->
+            <div id="settings-tab" class="tab-pane">
                 <h2>相机设置</h2>
-                <div class="form-group">
-                    <label for="jpegQuantity">JPEG 质量 (0-2)</label>
-                    <input type="number" id="jpegQuantity" name="jpegQuantity" min="0" max="2" required>
+                
+                <div class="form-section">
+                    <h3>WiFi 设置</h3>
+                    <div class="form-group">
+                        <label for="wifi-ssid">WiFi 名称</label>
+                        <input type="text" id="wifi-ssid">
+                    </div>
+                    <div class="form-group">
+                        <label for="wifi-password">WiFi 密码</label>
+                        <input type="password" id="wifi-password">
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="frameSize">画面尺寸</label>
-                    <select id="frameSize" name="frameSize">
-                        <option value="0">96x96</option>
-                        <option value="1">128x128</option>
-                        <option value="2">QQVGA (160x120)</option>
-                        <option value="3">QCIF (176x144)</option>
-                        <option value="4">HQVGA (240x176)</option>
-                        <option value="5">240x240</option>
-                        <option value="6">QVGA (320x240)</option>
-                        <option value="7">320x320</option>
-                        <option value="8">CIF (400x296)</option>
-                        <option value="9">HVGA (480x320)</option>
-                        <option value="10">VGA (640x480)</option>
-                        <option value="11">SVGA (800x600)</option>
-                        <option value="12">XGA (1024x768)</option>
-                        <option value="13">HD (1280x720)</option>
-                        <option value="14">SXGA (1280x1024)</option>
-                        <option value="15">UXGA (1600x1200)</option>
-                    </select>
+                
+                <div class="form-section">
+                    <h3>上传设置</h3>
+                    <div class="form-group">
+                        <label for="server-address">服务器地址</label>
+                        <input type="text" id="server-address">
+                    </div>
+                    <div class="form-group">
+                        <label for="server-port">服务器端口</label>
+                        <input type="number" id="server-port" value="8080">
+                    </div>
+                    <div class="form-group">
+                        <label for="upload-interval">上传间隔 (秒)</label>
+                        <input type="number" id="upload-interval" value="60">
+                    </div>
                 </div>
+                
+                <div class="form-section">
+                    <h3>相机设置</h3>
+                    <div class="form-group">
+                        <label for="jpeg-quality">JPEG 质量 (0-2)</label>
+                        <select id="jpeg-quality">
+                            <option value="0">0 - 高质量</option>
+                            <option value="1" selected>1 - 正常</option>
+                            <option value="2">2 - 低质量</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="frame-size">画面尺寸</label>
+                        <select id="frame-size">
+                            <option value="0">96x96</option>
+                            <option value="1">128x128</option>
+                            <option value="2">QQVGA (160x120)</option>
+                            <option value="3">QCIF (176x144)</option>
+                            <option value="4">HQVGA (240x176)</option>
+                            <option value="5">240x240</option>
+                            <option value="6">QVGA (320x240)</option>
+                            <option value="7">320x320</option>
+                            <option value="8">CIF (400x296)</option>
+                            <option value="9">HVGA (480x320)</option>
+                            <option value="10" selected>VGA (640x480)</option>
+                            <option value="11">SVGA (800x600)</option>
+                            <option value="12">XGA (1024x768)</option>
+                            <option value="13">HD (1280x720)</option>
+                            <option value="14">SXGA (1280x1024)</option>
+                            <option value="15">UXGA (1600x1200)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-section">
+                    <h3>其他设置</h3>
+                    <div class="form-group">
+                        <label for="nickname">设备昵称</label>
+                        <input type="text" id="nickname" value="5mpCamera">
+                    </div>
+                    <div class="form-group">
+                        <label for="timezone">时区</label>
+                        <select id="timezone">
+                            <option value="GMT+0" selected>GMT+0 (UTC)</option>
+                            <option value="GMT+8">GMT+8 (北京)</option>
+                            <option value="GMT-8">GMT-8 (太平洋)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="button-group">
+                    <button id="save-config-btn" class="btn-primary">💾 保存设置</button>
+                </div>
+                
+                <div id="save-status" style="margin-top: 1rem; color: var(--text-color);"></div>
             </div>
-            
-            <button type="submit" id="saveBtn">保存并重启</button>
-            <div id="message" class="message"></div>
-        </form>
+        </div>
     </div>
     
     <script src="/app.js"></script>

@@ -1,5 +1,6 @@
 #include "camera/UnitCamS3_5MP.h"
 #include "services/StorageService.h"
+#include "services/WebServerService.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
@@ -117,8 +118,19 @@ extern "C" void app_main(void) {
 
     Operation::init_post_data();
 
+    // 初始化存储服务
+    StorageService& storage = StorageService::getInstance();
+    storage.init();
+    ESP_LOGI(TAG, "Storage initialized");
+
     camera = new UnitCamS3_5MP();
     camera->OnProcessImage = Operation::upload_photo;
     camera->Init();
+    
+    // 连接相机和 Web 服务器
+    WebServerService& webServer = WebServerService::getInstance();
+    webServer.setCameraInstance(camera);
+    
+    // 启动相机
     camera->Start();
 }

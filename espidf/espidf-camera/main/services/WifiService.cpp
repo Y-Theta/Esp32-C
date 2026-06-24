@@ -51,11 +51,18 @@ void WifiService::init(const std::string& ssid, const std::string& password) {
     }
 }
 
-void WifiService::connect() {
+void WifiService::connect(bool forceAP) {
     if (_apMode) {
-        ESP_LOGI(TAG, "Already in AP mode, stopping AP first");
-        esp_wifi_stop();
-        _apMode = false;
+        ESP_LOGI(TAG, "Already in AP mode");
+        if (!forceAP) {
+            return;
+        }
+    }
+    
+    if (forceAP) {
+        ESP_LOGI(TAG, "Forcing AP mode");
+        startAPMode();
+        return;
     }
     
     ESP_LOGI(TAG, "Connecting to SSID: %s", _ssid.c_str());
@@ -115,10 +122,11 @@ void WifiService::startAPMode() {
     
     // 配置 AP 模式
     wifi_config_t ap_config = {};
-    strlcpy((char*)ap_config.ap.ssid, "UnitCamS3_Config", sizeof(ap_config.ap.ssid));
-    ap_config.ap.ssid_len = strlen("UnitCamS3_Config");
+    strlcpy((char*)ap_config.ap.ssid, "M5Stack 5MP Cam", sizeof(ap_config.ap.ssid));
+    ap_config.ap.ssid_len = strlen("M5Stack 5MP Cam");
     ap_config.ap.channel = 1;
-    ap_config.ap.authmode = WIFI_AUTH_OPEN;
+    ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    strlcpy((char*)ap_config.ap.password, "20154530", sizeof(ap_config.ap.password));
     ap_config.ap.max_connection = 4;
     ap_config.ap.beacon_interval = 100;
     
@@ -131,8 +139,8 @@ void WifiService::startAPMode() {
 }
 
 void WifiService::handleAPModeStarted() {
-    ESP_LOGI(TAG, "AP mode started! SSID: UnitCamS3_Config");
-    ESP_LOGI(TAG, "Connect to WiFi 'UnitCamS3_Config' and visit http://172.20.0.1");
+    ESP_LOGI(TAG, "AP mode started! SSID: M5Stack 5MP Cam");
+    ESP_LOGI(TAG, "Connect to WiFi 'M5Stack 5MP Cam' (password: 20154530) and visit http://172.20.0.1");
     
     // 启动 Web 服务器
     WebServerService& webServer = WebServerService::getInstance();

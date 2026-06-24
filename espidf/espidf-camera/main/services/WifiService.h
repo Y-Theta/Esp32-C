@@ -25,7 +25,7 @@ public:
     WifiService& operator=(const WifiService&) = delete;
 
     void init(const std::string& ssid, const std::string& password);
-    void connect();
+    void connect(bool forceAP = false);
     void startAPMode();
     void disconnect();
     bool isConnected();
