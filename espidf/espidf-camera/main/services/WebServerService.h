@@ -17,14 +17,11 @@ public:
     void start();
     void stop();
     bool isRunning() const { return _server != nullptr; }
-    
+
     // 回调函数
     std::function<void()> onTakePhotoRequested;
     std::function<void()> onConnectToSTRequested;
     std::function<void()> onDisconnectWiFiRequested;
-    
-    // 设置相机回调
-    void setCameraInstance(class UnitCamS3_5MP* camera) { _camera = camera; }
 
 private:
     WebServerService() = default;
@@ -36,16 +33,24 @@ private:
     static esp_err_t jsHandler(httpd_req_t* req);
     static esp_err_t getConfigHandler(httpd_req_t* req);
     static esp_err_t saveConfigHandler(httpd_req_t* req);
-    
+
     // API handlers
     static esp_err_t apiTakePhotoHandler(httpd_req_t* req);
     static esp_err_t apiConnectSTAHandler(httpd_req_t* req);
     static esp_err_t apiGetStatusHandler(httpd_req_t* req);
     static esp_err_t apiLastPhotoHandler(httpd_req_t* req);
-    
+    static esp_err_t apiSetFrameSizeHandler(httpd_req_t* req);
+    static esp_err_t apiSetJpegQualityHandler(httpd_req_t* req);
+    static esp_err_t apiSetWhiteBalanceHandler(httpd_req_t* req);
+    static esp_err_t apiSetContrastHandler(httpd_req_t* req);
+    static esp_err_t apiSetSaturationHandler(httpd_req_t* req);
+    static esp_err_t apiSetBrightnessHandler(httpd_req_t* req);
+    static esp_err_t apiSetSpecialEffectHandler(httpd_req_t* req);
+    static esp_err_t apiApplyCameraConfigHandler(httpd_req_t* req);
+    static esp_err_t apiCameraStatusHandler(httpd_req_t* req);
+
     // Helper to read file from SPIFFS
     static esp_err_t serveFile(httpd_req_t* req, const char* path, const char* contentType);
 
     httpd_handle_t _server = nullptr;
-    UnitCamS3_5MP* _camera = nullptr;
 };

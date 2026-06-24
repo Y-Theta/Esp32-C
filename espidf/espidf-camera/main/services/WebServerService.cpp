@@ -74,11 +74,16 @@ esp_err_t WebServerService::getConfigHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "postInterval", config.postInterval);
     cJSON_AddNumberToObject(root, "jpegQuantity", config.jpegQuantity);
     cJSON_AddNumberToObject(root, "frameSize", config.frameSize);
+    cJSON_AddNumberToObject(root, "wbMode", config.wbMode);
+    cJSON_AddNumberToObject(root, "contrast", config.contrast);
+    cJSON_AddNumberToObject(root, "saturation", config.saturation);
+    cJSON_AddNumberToObject(root, "brightness", config.brightness);
+    cJSON_AddNumberToObject(root, "specialEffect", config.specialEffect);
     cJSON_AddStringToObject(root, "startPoster", config.startPoster.c_str());
     cJSON_AddStringToObject(root, "waitApFirst", config.waitApFirst.c_str());
     cJSON_AddStringToObject(root, "nickname", config.nickname.c_str());
     cJSON_AddStringToObject(root, "timeZone", config.timeZone.c_str());
-    
+
     char* json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
@@ -142,22 +147,37 @@ esp_err_t WebServerService::saveConfigHandler(httpd_req_t* req) {
     
     item = cJSON_GetObjectItem(root, "jpegQuantity");
     if (item && cJSON_IsNumber(item)) config.jpegQuantity = item->valueint;
-    
+
     item = cJSON_GetObjectItem(root, "frameSize");
     if (item && cJSON_IsNumber(item)) config.frameSize = item->valueint;
-    
+
+    item = cJSON_GetObjectItem(root, "wbMode");
+    if (item && cJSON_IsNumber(item)) config.wbMode = item->valueint;
+
+    item = cJSON_GetObjectItem(root, "contrast");
+    if (item && cJSON_IsNumber(item)) config.contrast = item->valueint;
+
+    item = cJSON_GetObjectItem(root, "saturation");
+    if (item && cJSON_IsNumber(item)) config.saturation = item->valueint;
+
+    item = cJSON_GetObjectItem(root, "brightness");
+    if (item && cJSON_IsNumber(item)) config.brightness = item->valueint;
+
+    item = cJSON_GetObjectItem(root, "specialEffect");
+    if (item && cJSON_IsNumber(item)) config.specialEffect = item->valueint;
+
     item = cJSON_GetObjectItem(root, "startPoster");
     if (item && cJSON_IsString(item)) config.startPoster = item->valuestring;
-    
+
     item = cJSON_GetObjectItem(root, "waitApFirst");
     if (item && cJSON_IsString(item)) config.waitApFirst = item->valuestring;
-    
+
     item = cJSON_GetObjectItem(root, "nickname");
     if (item && cJSON_IsString(item)) config.nickname = item->valuestring;
-    
+
     item = cJSON_GetObjectItem(root, "timeZone");
     if (item && cJSON_IsString(item)) config.timeZone = item->valuestring;
-    
+
     cJSON_Delete(root);
     
     storage.setConfig(config);
@@ -175,31 +195,23 @@ esp_err_t WebServerService::saveConfigHandler(httpd_req_t* req) {
 
 esp_err_t WebServerService::apiTakePhotoHandler(httpd_req_t* req) {
     ESP_LOGI(TAG, "API: Take photo requested");
-    
-    // 获取服务实例
-    WebServerService& self = getInstance();
-    
-    if (!self._camera) {
-        ESP_LOGE(TAG, "Camera instance not set!");
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_sendstr(req, "{\"success\":false,\"error\":\"Camera not initialized\"}");
-        return ESP_FAIL;
-    }
-    
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+
     // 使用 lambda 捕获照片
     bool photoTaken = false;
     size_t photoLen = 0;
-    
-    self._camera->TakePhoto([&photoTaken, &photoLen](camera_fb_t* fb) {
+
+    camera.WebTakePhoto([&photoTaken, &photoLen](camera_fb_t* fb) {
         if (fb && fb->format == PIXFORMAT_JPEG) {
             ESP_LOGI(TAG, "Photo taken, size: %zu bytes", fb->len);
-            
+
             // 释放之前的缓存
             if (_photoBuffer) {
                 free(_photoBuffer);
                 _photoBuffer = nullptr;
             }
-            
+
             // 分配新缓存
             _photoBuffer = (uint8_t*)malloc(fb->len);
             if (_photoBuffer) {
@@ -210,19 +222,19 @@ esp_err_t WebServerService::apiTakePhotoHandler(httpd_req_t* req) {
             }
         }
     });
-    
+
     if (photoTaken) {
         cJSON* root = cJSON_CreateObject();
         cJSON_AddBoolToObject(root, "success", true);
         cJSON_AddNumberToObject(root, "photoSize", photoLen);
         cJSON_AddStringToObject(root, "photoUrl", "/api/last-photo");
-        
+
         char* json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, json_str);
         free(json_str);
         cJSON_Delete(root);
-        
+
         return ESP_OK;
     } else {
         httpd_resp_set_status(req, "500 Internal Server Error");
@@ -276,6 +288,217 @@ esp_err_t WebServerService::apiGetStatusHandler(httpd_req_t* req) {
     return ESP_OK;
 }
 
+static esp_err_t readPostJson(httpd_req_t* req, cJSON** root) {
+    int total_len = req->content_len;
+    if (total_len <= 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_sendstr(req, "{\"success\":false,\"error\":\"Empty body\"}");
+        return ESP_FAIL;
+    }
+
+    char* buf = (char*)malloc(total_len + 1);
+    if (!buf) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_sendstr(req, "{\"success\":false,\"error\":\"Memory allocation failed\"}");
+        return ESP_FAIL;
+    }
+
+    int received = 0;
+    while (received < total_len) {
+        int ret = httpd_req_recv(req, buf + received, total_len - received);
+        if (ret <= 0) {
+            free(buf);
+            httpd_resp_set_status(req, "400 Bad Request");
+            httpd_resp_sendstr(req, "{\"success\":false,\"error\":\"Failed to receive data\"}");
+            return ESP_FAIL;
+        }
+        received += ret;
+    }
+    buf[total_len] = '\0';
+
+    *root = cJSON_Parse(buf);
+    free(buf);
+
+    if (!*root) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_sendstr(req, "{\"success\":false,\"error\":\"Invalid JSON\"}");
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t readPostJsonInt(httpd_req_t* req, const char* key, int* value, const char* errorName) {
+    cJSON* root = nullptr;
+    if (readPostJson(req, &root) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    cJSON* item = cJSON_GetObjectItem(root, key);
+    if (!item || !cJSON_IsNumber(item)) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        char errorMsg[64];
+        snprintf(errorMsg, sizeof(errorMsg), "{\"success\":false,\"error\":\"%s is required\"}", errorName);
+        httpd_resp_sendstr(req, errorMsg);
+        return ESP_FAIL;
+    }
+
+    *value = item->valueint;
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+esp_err_t WebServerService::apiSetFrameSizeHandler(httpd_req_t* req) {
+    ESP_LOGI(TAG, "API: Set frame size");
+
+    int frameSize = 0;
+    if (readPostJsonInt(req, "frameSize", &frameSize, "frameSize") != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    camera.SetFrameSize((framesize_t)frameSize);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
+
+esp_err_t WebServerService::apiSetJpegQualityHandler(httpd_req_t* req) {
+    ESP_LOGI(TAG, "API: Set JPEG quality");
+
+    int quality = 0;
+    if (readPostJsonInt(req, "quality", &quality, "quality") != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    camera.SetJpegQuality(quality);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
+
+esp_err_t WebServerService::apiSetWhiteBalanceHandler(httpd_req_t* req) {
+    ESP_LOGI(TAG, "API: Set white balance");
+
+    int wbMode = 0;
+    if (readPostJsonInt(req, "wbMode", &wbMode, "wbMode") != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    camera.SetWhiteBalance(wbMode);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
+
+esp_err_t WebServerService::apiSetContrastHandler(httpd_req_t* req) {
+    ESP_LOGI(TAG, "API: Set contrast");
+
+    int contrast = 0;
+    if (readPostJsonInt(req, "contrast", &contrast, "contrast") != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    camera.SetContrast(contrast);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
+
+esp_err_t WebServerService::apiSetSaturationHandler(httpd_req_t* req) {
+    ESP_LOGI(TAG, "API: Set saturation");
+
+    int saturation = 0;
+    if (readPostJsonInt(req, "saturation", &saturation, "saturation") != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    camera.SetSaturation(saturation);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
+
+esp_err_t WebServerService::apiSetBrightnessHandler(httpd_req_t* req) {
+    ESP_LOGI(TAG, "API: Set brightness");
+
+    int brightness = 0;
+    if (readPostJsonInt(req, "brightness", &brightness, "brightness") != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    camera.SetBrightness(brightness);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
+
+esp_err_t WebServerService::apiSetSpecialEffectHandler(httpd_req_t* req) {
+    ESP_LOGI(TAG, "API: Set special effect");
+
+    int effect = 0;
+    if (readPostJsonInt(req, "effect", &effect, "effect") != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    camera.SetSpecialEffect(effect);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
+
+esp_err_t WebServerService::apiApplyCameraConfigHandler(httpd_req_t* req) {
+    ESP_LOGI(TAG, "API: Apply camera config");
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    camera.ApplyCameraConfig();
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
+
+esp_err_t WebServerService::apiCameraStatusHandler(httpd_req_t* req) {
+    ESP_LOGI(TAG, "API: Get camera status");
+
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    StorageService& storage = StorageService::getInstance();
+    const CONFIG::SystemConfig_t& config = storage.getConfig();
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "initialized", camera.IsInitialized());
+    cJSON_AddNumberToObject(root, "frameSize", config.frameSize);
+    cJSON_AddNumberToObject(root, "jpegQuantity", config.jpegQuantity);
+    cJSON_AddNumberToObject(root, "wbMode", config.wbMode);
+    cJSON_AddNumberToObject(root, "contrast", config.contrast);
+    cJSON_AddNumberToObject(root, "saturation", config.saturation);
+    cJSON_AddNumberToObject(root, "brightness", config.brightness);
+    cJSON_AddNumberToObject(root, "specialEffect", config.specialEffect);
+
+    char* json_str = cJSON_Print(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+
+    free(json_str);
+    cJSON_Delete(root);
+
+    return ESP_OK;
+}
+
 void WebServerService::start() {
     if (_server) {
         ESP_LOGI(TAG, "Server already running");
@@ -291,6 +514,7 @@ void WebServerService::start() {
     config.stack_size = 8192;
     config.max_uri_len = 4096;
     config.max_req_hdr_len = 4096;
+    config.max_uri_handlers = 32;
     
     if (httpd_start(&_server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start web server");
@@ -359,7 +583,70 @@ void WebServerService::start() {
         .handler = apiGetStatusHandler,
         .user_ctx = nullptr
     };
-    
+
+    httpd_uri_t camera_status_uri = {
+        .uri = "/api/camera/status",
+        .method = HTTP_GET,
+        .handler = apiCameraStatusHandler,
+        .user_ctx = nullptr
+    };
+
+    httpd_uri_t set_frame_size_uri = {
+        .uri = "/api/camera/frame-size",
+        .method = HTTP_POST,
+        .handler = apiSetFrameSizeHandler,
+        .user_ctx = nullptr
+    };
+
+    httpd_uri_t set_jpeg_quality_uri = {
+        .uri = "/api/camera/quality",
+        .method = HTTP_POST,
+        .handler = apiSetJpegQualityHandler,
+        .user_ctx = nullptr
+    };
+
+    httpd_uri_t set_white_balance_uri = {
+        .uri = "/api/camera/white-balance",
+        .method = HTTP_POST,
+        .handler = apiSetWhiteBalanceHandler,
+        .user_ctx = nullptr
+    };
+
+    httpd_uri_t set_contrast_uri = {
+        .uri = "/api/camera/contrast",
+        .method = HTTP_POST,
+        .handler = apiSetContrastHandler,
+        .user_ctx = nullptr
+    };
+
+    httpd_uri_t set_saturation_uri = {
+        .uri = "/api/camera/saturation",
+        .method = HTTP_POST,
+        .handler = apiSetSaturationHandler,
+        .user_ctx = nullptr
+    };
+
+    httpd_uri_t set_brightness_uri = {
+        .uri = "/api/camera/brightness",
+        .method = HTTP_POST,
+        .handler = apiSetBrightnessHandler,
+        .user_ctx = nullptr
+    };
+
+    httpd_uri_t set_special_effect_uri = {
+        .uri = "/api/camera/special-effect",
+        .method = HTTP_POST,
+        .handler = apiSetSpecialEffectHandler,
+        .user_ctx = nullptr
+    };
+
+    httpd_uri_t apply_camera_config_uri = {
+        .uri = "/api/camera/apply",
+        .method = HTTP_POST,
+        .handler = apiApplyCameraConfigHandler,
+        .user_ctx = nullptr
+    };
+
     httpd_register_uri_handler(_server, &index_uri);
     httpd_register_uri_handler(_server, &css_uri);
     httpd_register_uri_handler(_server, &js_uri);
@@ -369,7 +656,16 @@ void WebServerService::start() {
     httpd_register_uri_handler(_server, &last_photo_uri);
     httpd_register_uri_handler(_server, &connect_sta_uri);
     httpd_register_uri_handler(_server, &status_uri);
-    
+    httpd_register_uri_handler(_server, &camera_status_uri);
+    httpd_register_uri_handler(_server, &set_frame_size_uri);
+    httpd_register_uri_handler(_server, &set_jpeg_quality_uri);
+    httpd_register_uri_handler(_server, &set_white_balance_uri);
+    httpd_register_uri_handler(_server, &set_contrast_uri);
+    httpd_register_uri_handler(_server, &set_saturation_uri);
+    httpd_register_uri_handler(_server, &set_brightness_uri);
+    httpd_register_uri_handler(_server, &set_special_effect_uri);
+    httpd_register_uri_handler(_server, &apply_camera_config_uri);
+
     ESP_LOGI(TAG, "Web server started");
 }
 

@@ -25,7 +25,7 @@ public:
     
     // 更新特定配置
     void setWifiConfig(const std::string& ssid, const std::string& password);
-    void setCameraConfig(int jpegQuality, int frameSize);
+    void setCameraConfig(int jpegQuality, int frameSize, int wbMode = 0, int contrast = 3, int saturation = 3, int brightness = 4, int specialEffect = 0);
     void setPostConfig(const std::string& server, int port, int interval);
 
 private:

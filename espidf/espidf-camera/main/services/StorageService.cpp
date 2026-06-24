@@ -113,10 +113,25 @@ void StorageService::load() {
     
     item = cJSON_GetObjectItem(doc, "jpegQuantity");
     if (item && cJSON_IsNumber(item)) _config.jpegQuantity = item->valueint;
-    
+
     item = cJSON_GetObjectItem(doc, "frameSize");
     if (item && cJSON_IsNumber(item)) _config.frameSize = item->valueint;
-    
+
+    item = cJSON_GetObjectItem(doc, "wbMode");
+    if (item && cJSON_IsNumber(item)) _config.wbMode = item->valueint;
+
+    item = cJSON_GetObjectItem(doc, "contrast");
+    if (item && cJSON_IsNumber(item)) _config.contrast = item->valueint;
+
+    item = cJSON_GetObjectItem(doc, "saturation");
+    if (item && cJSON_IsNumber(item)) _config.saturation = item->valueint;
+
+    item = cJSON_GetObjectItem(doc, "brightness");
+    if (item && cJSON_IsNumber(item)) _config.brightness = item->valueint;
+
+    item = cJSON_GetObjectItem(doc, "specialEffect");
+    if (item && cJSON_IsNumber(item)) _config.specialEffect = item->valueint;
+
     cJSON_Delete(doc);
     ESP_LOGI(TAG, "Config loaded successfully!");
 }
@@ -145,7 +160,13 @@ void StorageService::save() {
     
     cJSON_AddNumberToObject(doc, "jpegQuantity", _config.jpegQuantity);
     cJSON_AddNumberToObject(doc, "frameSize", _config.frameSize);
-    
+
+    cJSON_AddNumberToObject(doc, "wbMode", _config.wbMode);
+    cJSON_AddNumberToObject(doc, "contrast", _config.contrast);
+    cJSON_AddNumberToObject(doc, "saturation", _config.saturation);
+    cJSON_AddNumberToObject(doc, "brightness", _config.brightness);
+    cJSON_AddNumberToObject(doc, "specialEffect", _config.specialEffect);
+
     char* json_str = cJSON_Print(doc);
     fputs(json_str, file);
     free(json_str);
@@ -168,11 +189,18 @@ void StorageService::setWifiConfig(const std::string& ssid, const std::string& p
     _config.wifiPass = password;
 }
 
-void StorageService::setCameraConfig(int jpegQuality, int frameSize) {
+void StorageService::setCameraConfig(int jpegQuality, int frameSize, int wbMode, int contrast, int saturation, int brightness, int specialEffect) {
     _config.jpegQuantity = jpegQuality;
     _config.frameSize = frameSize;
+    _config.wbMode = wbMode;
+    _config.contrast = contrast;
+    _config.saturation = saturation;
+    _config.brightness = brightness;
+    _config.specialEffect = specialEffect;
 }
 
 void StorageService::setPostConfig(const std::string& server, int port, int interval) {
     _config.postServer = server;
+    _config.postPort = port;
+    _config.postInterval = interval;
 }

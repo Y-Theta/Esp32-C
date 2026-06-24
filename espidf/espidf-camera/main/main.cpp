@@ -7,8 +7,6 @@
 
 static const char* TAG = "PY260 Transfer";
 
-UnitCamS3_5MP* camera = nullptr;
-
 namespace Operation {
 
 static const char* boundary = "-------562164BDF";
@@ -123,14 +121,10 @@ extern "C" void app_main(void) {
     storage.init();
     ESP_LOGI(TAG, "Storage initialized");
 
-    camera = new UnitCamS3_5MP();
-    camera->OnProcessImage = Operation::upload_photo;
-    camera->Init();
-    
-    // 连接相机和 Web 服务器
-    WebServerService& webServer = WebServerService::getInstance();
-    webServer.setCameraInstance(camera);
-    
-    // 启动相机
-    camera->Start();
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    camera.OnProcessImage = Operation::upload_photo;
+    camera.Init();
+
+    // 启动相机（内部会启动 Web 服务器）
+    camera.Start();
 }

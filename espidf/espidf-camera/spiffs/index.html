@@ -8,139 +8,276 @@
 </head>
 <body>
     <div class="container">
-        <h1>UnitCamS3</h1>
-        
+        <header class="app-header">
+            <h1>UnitCamS3</h1>
+            <span class="subtitle">5MP 相机控制台</span>
+        </header>
+
         <!-- Tab 导航 -->
-        <div class="tabs">
-            <button class="tab active" data-tab="camera">📷 相机模式</button>
-            <button class="tab" data-tab="wifi">📶 网络模式</button>
-            <button class="tab" data-tab="settings">⚙️ 设置</button>
-        </div>
-        
+        <nav class="tabs">
+            <button class="tab active" data-tab="camera">
+                <span class="tab-icon">📷</span>
+                <span class="tab-label">相机</span>
+            </button>
+            <button class="tab" data-tab="network">
+                <span class="tab-icon">📶</span>
+                <span class="tab-label">网络</span>
+            </button>
+            <button class="tab" data-tab="camera-settings">
+                <span class="tab-icon">🎨</span>
+                <span class="tab-label">相机设置</span>
+            </button>
+            <button class="tab" data-tab="system">
+                <span class="tab-icon">⚙️</span>
+                <span class="tab-label">系统</span>
+            </button>
+        </nav>
+
         <!-- Tab 内容 -->
         <div class="tab-content">
-            <!-- 相机模式 Tab -->
+            <!-- 相机 Tab -->
             <div id="camera-tab" class="tab-pane active">
-                <h2>Web 相机模式</h2>
-                
-                <div class="status-card">
-                    <span class="status-dot"></span>
-                    <span id="capture-status">准备就绪</span>
-                </div>
-                
-                <div class="button-group">
-                    <button id="capture-btn" class="btn-primary">📷 拍照</button>
-                </div>
-                
-                <div id="captured-image" style="display: none;">
-                    <h3>照片预览</h3>
-                    <img id="captured-photo" alt="Captured Photo" style="width: 100%; border-radius: 8px; margin-top: 1rem;">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>实时拍照</h2>
+                        <div class="status-pill">
+                            <span class="status-dot"></span>
+                            <span id="capture-status">准备就绪</span>
+                        </div>
+                    </div>
+
+                    <div class="photo-container" id="photo-placeholder">
+                        <div class="placeholder-content">
+                            <span class="placeholder-icon">📷</span>
+                            <p>点击拍照按钮获取照片</p>
+                        </div>
+                    </div>
+
+                    <div id="captured-image" class="photo-wrapper" style="display: none;">
+                        <img id="captured-photo" alt="Captured Photo">
+                    </div>
+
+                    <div class="photo-info" id="photo-info" style="display: none;">
+                        <span id="photo-size"></span>
+                        <span id="photo-time"></span>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="capture-btn" class="btn-primary">
+                            <span class="btn-icon">📸</span>
+                            <span>拍照</span>
+                        </button>
+                    </div>
                 </div>
             </div>
-            
-            <!-- 网络模式 Tab -->
-            <div id="wifi-tab" class="tab-pane">
-                <h2>网络模式</h2>
-                <div class="status-card">
-                    <span id="wifi-status" class="status-dot"></span>
-                    <span id="wifi-status-text">当前模式：AP 模式 (SSID: M5Stack 5MP Cam)</span>
-                </div>
-                
-                <div class="button-group">
-                    <button id="connect-sta-btn" class="btn-primary">🔌 连接到 STA 模式</button>
+
+            <!-- 网络 Tab -->
+            <div id="network-tab" class="tab-pane">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>网络模式</h2>
+                        <div class="status-pill">
+                            <span id="wifi-status" class="status-dot"></span>
+                            <span id="wifi-status-text">AP 模式</span>
+                        </div>
+                    </div>
+
+                    <div class="info-box">
+                        <p>当前 SSID: <strong>M5Stack 5MP Cam</strong></p>
+                        <p>密码: <strong>20154530</strong></p>
+                        <p>管理地址: <strong>http://172.20.0.1</strong></p>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="connect-sta-btn" class="btn-primary">
+                            <span class="btn-icon">🔌</span>
+                            <span>连接到 STA 模式</span>
+                        </button>
+                    </div>
                 </div>
             </div>
-            
-            <!-- 设置 Tab -->
-            <div id="settings-tab" class="tab-pane">
-                <h2>相机设置</h2>
-                
-                <div class="form-section">
-                    <h3>WiFi 设置</h3>
-                    <div class="form-group">
-                        <label for="wifi-ssid">WiFi 名称</label>
-                        <input type="text" id="wifi-ssid">
+
+            <!-- 相机设置 Tab -->
+            <div id="camera-settings-tab" class="tab-pane">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>相机参数</h2>
+                        <div class="status-pill" id="camera-init-status">
+                            <span class="status-dot offline"></span>
+                            <span>未初始化</span>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label for="wifi-password">WiFi 密码</label>
-                        <input type="password" id="wifi-password">
+
+                    <div class="form-section">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="frame-size">画面尺寸</label>
+                                <select id="frame-size">
+                                    <option value="0">96x96</option>
+                                    <option value="1">128x128</option>
+                                    <option value="6">QVGA (320x240)</option>
+                                    <option value="7">320x320</option>
+                                    <option value="10">VGA (640x480)</option>
+                                    <option value="13">HD (1280x720)</option>
+                                    <option value="15">UXGA (1600x1200)</option>
+                                    <option value="16">FHD (1920x1080)</option>
+                                    <option value="24">5MP (2592x1944)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="jpeg-quality">JPEG 质量</label>
+                                <select id="jpeg-quality">
+                                    <option value="0">0 - 高质量</option>
+                                    <option value="1" selected>1 - 正常</option>
+                                    <option value="2">2 - 低质量</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="wb-mode">白平衡</label>
+                                <select id="wb-mode">
+                                    <option value="0" selected>自动</option>
+                                    <option value="1">晴天</option>
+                                    <option value="2">办公室</option>
+                                    <option value="3">阴天</option>
+                                    <option value="4">家庭</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="special-effect">特效</label>
+                                <select id="special-effect">
+                                    <option value="0" selected>正常</option>
+                                    <option value="1">偏蓝</option>
+                                    <option value="2">偏红</option>
+                                    <option value="3">黑白</option>
+                                    <option value="4">怀旧</option>
+                                    <option value="5">负片</option>
+                                    <option value="6">偏绿</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="contrast">对比度 <span id="contrast-value">3</span></label>
+                                <input type="range" id="contrast" min="0" max="6" value="3">
+                                <div class="range-labels">
+                                    <span>低</span>
+                                    <span>默认</span>
+                                    <span>高</span>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="saturation">饱和度 <span id="saturation-value">3</span></label>
+                                <input type="range" id="saturation" min="0" max="6" value="3">
+                                <div class="range-labels">
+                                    <span>低</span>
+                                    <span>默认</span>
+                                    <span>高</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="brightness">亮度 <span id="brightness-value">4</span></label>
+                                <input type="range" id="brightness" min="0" max="8" value="4">
+                                <div class="range-labels">
+                                    <span>暗</span>
+                                    <span>默认</span>
+                                    <span>亮</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+
+                    <div class="button-group">
+                        <button id="apply-camera-btn" class="btn-primary">
+                            <span class="btn-icon">✓</span>
+                            <span>应用相机设置</span>
+                        </button>
+                    </div>
+
+                    <div id="camera-settings-status" class="message" style="display: none;"></div>
                 </div>
-                
-                <div class="form-section">
-                    <h3>上传设置</h3>
-                    <div class="form-group">
-                        <label for="server-address">服务器地址</label>
-                        <input type="text" id="server-address">
+            </div>
+
+            <!-- 系统 Tab -->
+            <div id="system-tab" class="tab-pane">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>系统设置</h2>
+                        <span class="hint">修改后需要重启生效</span>
                     </div>
-                    <div class="form-group">
-                        <label for="server-port">服务器端口</label>
-                        <input type="number" id="server-port" value="8080">
+
+                    <div class="form-section">
+                        <h3>WiFi 设置</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="wifi-ssid">WiFi 名称</label>
+                                <input type="text" id="wifi-ssid" placeholder="输入 WiFi 名称">
+                            </div>
+                            <div class="form-group">
+                                <label for="wifi-password">WiFi 密码</label>
+                                <input type="password" id="wifi-password" placeholder="输入 WiFi 密码">
+                            </div>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label for="upload-interval">上传间隔 (秒)</label>
-                        <input type="number" id="upload-interval" value="60">
+
+                    <div class="form-section">
+                        <h3>上传设置</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="server-address">服务器地址</label>
+                                <input type="text" id="server-address" placeholder="例如: n8n.y-theta.cn">
+                            </div>
+                            <div class="form-group">
+                                <label for="server-port">服务器端口</label>
+                                <input type="number" id="server-port" value="8080">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="upload-interval">上传间隔 (秒)</label>
+                            <input type="number" id="upload-interval" value="60">
+                        </div>
                     </div>
+
+                    <div class="form-section">
+                        <h3>其他设置</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="nickname">设备昵称</label>
+                                <input type="text" id="nickname" value="5mpCamera">
+                            </div>
+                            <div class="form-group">
+                                <label for="timezone">时区</label>
+                                <select id="timezone">
+                                    <option value="GMT+0" selected>GMT+0 (UTC)</option>
+                                    <option value="GMT+8">GMT+8 (北京)</option>
+                                    <option value="GMT-8">GMT-8 (太平洋)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="save-config-btn" class="btn-primary">
+                            <span class="btn-icon">💾</span>
+                            <span>保存并重启</span>
+                        </button>
+                    </div>
+
+                    <div id="save-status" class="message" style="display: none;"></div>
                 </div>
-                
-                <div class="form-section">
-                    <h3>相机设置</h3>
-                    <div class="form-group">
-                        <label for="jpeg-quality">JPEG 质量 (0-2)</label>
-                        <select id="jpeg-quality">
-                            <option value="0">0 - 高质量</option>
-                            <option value="1" selected>1 - 正常</option>
-                            <option value="2">2 - 低质量</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="frame-size">画面尺寸</label>
-                        <select id="frame-size">
-                            <option value="0">96x96</option>
-                            <option value="1">128x128</option>
-                            <option value="2">QQVGA (160x120)</option>
-                            <option value="3">QCIF (176x144)</option>
-                            <option value="4">HQVGA (240x176)</option>
-                            <option value="5">240x240</option>
-                            <option value="6">QVGA (320x240)</option>
-                            <option value="7">320x320</option>
-                            <option value="8">CIF (400x296)</option>
-                            <option value="9">HVGA (480x320)</option>
-                            <option value="10" selected>VGA (640x480)</option>
-                            <option value="11">SVGA (800x600)</option>
-                            <option value="12">XGA (1024x768)</option>
-                            <option value="13">HD (1280x720)</option>
-                            <option value="14">SXGA (1280x1024)</option>
-                            <option value="15">UXGA (1600x1200)</option>
-                        </select>
-                    </div>
-                </div>
-                
-                <div class="form-section">
-                    <h3>其他设置</h3>
-                    <div class="form-group">
-                        <label for="nickname">设备昵称</label>
-                        <input type="text" id="nickname" value="5mpCamera">
-                    </div>
-                    <div class="form-group">
-                        <label for="timezone">时区</label>
-                        <select id="timezone">
-                            <option value="GMT+0" selected>GMT+0 (UTC)</option>
-                            <option value="GMT+8">GMT+8 (北京)</option>
-                            <option value="GMT-8">GMT-8 (太平洋)</option>
-                        </select>
-                    </div>
-                </div>
-                
-                <div class="button-group">
-                    <button id="save-config-btn" class="btn-primary">💾 保存设置</button>
-                </div>
-                
-                <div id="save-status" style="margin-top: 1rem; color: var(--text-color);"></div>
             </div>
         </div>
     </div>
-    
+
     <script src="/app.js"></script>
 </body>
 </html>

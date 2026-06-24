@@ -485,7 +485,7 @@ bool ll_cam_dma_sizes(cam_obj_t *cam)
     if (cam->jpeg_mode) {
         if (cam->psram_mode) {
             cam->dma_buffer_size = cam->recv_size;
-            cam->dma_half_buffer_size = 1024;
+            cam->dma_half_buffer_size = 4096;
             cam->dma_half_buffer_cnt = cam->dma_buffer_size / cam->dma_half_buffer_size;
             cam->dma_node_buffer_size = cam->dma_half_buffer_size;
         } else {

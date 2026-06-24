@@ -37,6 +37,13 @@ struct SystemConfig_t {
 
     int jpegQuantity = 12;
     int frameSize = (int)FRAMESIZE_VGA;
+
+    // 相机图像参数
+    int wbMode = 0;       // 白平衡: Auto=0, sunny=1, office=2, cloudy=3, home=4
+    int contrast = 3;     // 对比度: 0-6, 3 默认
+    int saturation = 3;   // 饱和度: 0-6, 3 默认
+    int brightness = 4;   // 亮度: 0-8, 4 默认
+    int specialEffect = 0; // 特效: 0=正常
 };
 
 enum ConfigType {
