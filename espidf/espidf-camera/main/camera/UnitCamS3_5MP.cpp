@@ -102,8 +102,12 @@ void UnitCamS3_5MP::cam_init() {
     if (s) {
         ESP_LOGI(TAG, "Setting camera parameters...");
         
+        // 0. 设置 Frame Size (关键修复！)
+        s->set_framesize(s, (framesize_t)config.frameSize);
+        
         // 1. 设置 JPEG 质量 (0-2 for mega_ccm: 0=高, 1=默认, 2=低)
-        s->set_quality(s, 1);
+        int jpegQuality = (config.jpegQuantity <= 2) ? config.jpegQuantity : 1;
+        s->set_quality(s, jpegQuality);
         
         // 2. 确保特殊效果为正常（无滤镜）
         s->set_special_effect(s, 0);
@@ -120,7 +124,7 @@ void UnitCamS3_5MP::cam_init() {
         // 6. 调整亮度 (0-8, 4为默认)
         s->set_brightness(s, 4);
         
-        ESP_LOGI(TAG, "Camera parameters set");
+        ESP_LOGI(TAG, "Camera parameters set - frameSize=%d, jpegQuality=%d", config.frameSize, jpegQuality);
     }
     
     vTaskDelay(2000 / portTICK_PERIOD_MS);

@@ -42,24 +42,28 @@
             <div class="form-section">
                 <h2>相机设置</h2>
                 <div class="form-group">
-                    <label for="jpegQuantity">JPEG 质量</label>
-                    <input type="number" id="jpegQuantity" name="jpegQuantity" min="1" max="63" required>
+                    <label for="jpegQuantity">JPEG 质量 (0-2)</label>
+                    <input type="number" id="jpegQuantity" name="jpegQuantity" min="0" max="2" required>
                 </div>
                 <div class="form-group">
                     <label for="frameSize">画面尺寸</label>
                     <select id="frameSize" name="frameSize">
-                        <option value="1">96x96</option>
+                        <option value="0">96x96</option>
+                        <option value="1">128x128</option>
                         <option value="2">QQVGA (160x120)</option>
                         <option value="3">QCIF (176x144)</option>
                         <option value="4">HQVGA (240x176)</option>
-                        <option value="5">QVGA (320x240)</option>
-                        <option value="6">CIF (400x296)</option>
-                        <option value="7">VGA (640x480)</option>
-                        <option value="8">SVGA (800x600)</option>
-                        <option value="9">XGA (1024x768)</option>
-                        <option value="10">HD (1280x720)</option>
-                        <option value="11">SXGA (1280x1024)</option>
-                        <option value="12">UXGA (1600x1200)</option>
+                        <option value="5">240x240</option>
+                        <option value="6">QVGA (320x240)</option>
+                        <option value="7">320x320</option>
+                        <option value="8">CIF (400x296)</option>
+                        <option value="9">HVGA (480x320)</option>
+                        <option value="10">VGA (640x480)</option>
+                        <option value="11">SVGA (800x600)</option>
+                        <option value="12">XGA (1024x768)</option>
+                        <option value="13">HD (1280x720)</option>
+                        <option value="14">SXGA (1280x1024)</option>
+                        <option value="15">UXGA (1600x1200)</option>
                     </select>
                 </div>
             </div>

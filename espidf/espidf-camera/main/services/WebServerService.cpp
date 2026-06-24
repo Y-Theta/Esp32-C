@@ -161,6 +161,12 @@ void WebServerService::start() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.uri_match_fn = httpd_uri_match_wildcard;
+    config.lru_purge_enable = true;
+    config.max_open_sockets = 4;
+    config.stack_size = 8192;
+    // 从代码层面增加头大小（双重保险）
+    config.max_uri_len = 4096;
+    config.max_req_hdr_len = 4096;
     
     if (httpd_start(&_server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start web server");

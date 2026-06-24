@@ -29,10 +29,19 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('wifiSsid').value = config.wifiSsid || '';
         document.getElementById('wifiPass').value = config.wifiPass || '';
         document.getElementById('postServer').value = config.postServer || '';
-        document.getElementById('postPort').value = config.postPort || 8080;
+        document.getElementById('postPort').value = config.postPort || 443;
         document.getElementById('postInterval').value = config.postInterval || 5;
-        document.getElementById('jpegQuantity').value = config.jpegQuantity || 12;
-        document.getElementById('frameSize').value = config.frameSize || 7;
+        document.getElementById('jpegQuantity').value = (config.jpegQuantity >= 0 && config.jpegQuantity <= 2) ? config.jpegQuantity : 1;
+        document.getElementById('frameSize').value = config.frameSize || 10; // 默认 VGA
+        
+        // 选中对应项
+        const frameSelect = document.getElementById('frameSize');
+        for (let i = 0; i < frameSelect.options.length; i++) {
+            if (frameSelect.options[i].value == config.frameSize) {
+                frameSelect.options[i].selected = true;
+                break;
+            }
+        }
     }
     
     async function saveConfig() {
