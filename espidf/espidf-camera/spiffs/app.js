@@ -36,14 +36,21 @@ let isTakingPhoto = false;
 // 内存状态刷新定时器
 let memoryRefreshTimer = null;
 
-// ===== 监控流相关 (HTTP 轮询方式，更稳定) =====
+// ===== 监控流相关 (HTTP 并发预取 + 前端缓冲队列) =====
+// 生产者(requestFrame)维护 N 个并发请求，请求完成立即入队并补充新请求
+// 消费者(displayLoop)按目标帧率从队列取帧显示
+// 这样网络延迟被并发请求隐藏，帧率上限 ≈ min(相机实际帧率, 目标帧率)
 let monitorActive = false;         // 监控是否激活
-let streamTimer = null;            // 帧获取定时器
+let displayTimer = null;           // 显示循环定时器（消费者）
+let frameQueue = [];               // 已接收待显示的帧队列（缓冲区）
+let pendingRequests = 0;           // 正在进行中的请求数（生产者）
 let frameCount = 0;                // 已接收帧数
 let streamTotalBytes = 0;          // 累计接收字节数
 let fpsCounter = { frames: 0, lastTs: 0, fps: 0 };
 let currentBlobUrl = null;         // 当前 img 的 blob URL，用于释放
 let currentFrameIntervalMs = 50;   // 帧间隔，由配置决定
+const MAX_PENDING_REQUESTS = 2;    // 最大并发请求数（流水线深度，隐藏网络延迟）
+const MAX_QUEUE_SIZE = 3;          // 帧队列最大长度，避免内存堆积
 
 // 更新内存状态显示
 async function updateMemoryStatus() {
@@ -554,14 +561,17 @@ async function connectToSTA() {
     }
 }
 
-// ===== 监控流功能 (HTTP 轮询方式) =====
+// ===== 监控流功能 (HTTP 并发预取 + 前端缓冲队列) =====
 
-// 获取一帧图像，完成后自动调度下一帧（递归 setTimeout）
-// 比 setInterval 更优：避免请求堆积，帧完成后立即发起下一帧请求
-async function fetchFrame() {
+// 生产者：发起一个帧请求，完成后自动补充新请求（形成流水线）
+// 多个 requestFrame 可并发执行，由 MAX_PENDING_REQUESTS 控制并发上限
+async function requestFrame() {
     if (!monitorActive) return;
-    
-    const fetchStartTime = performance.now();
+    if (pendingRequests >= MAX_PENDING_REQUESTS) return;
+    // 队列已满时不再请求，由 displayLoop 消费后触发补充
+    if (frameQueue.length >= MAX_QUEUE_SIZE) return;
+
+    pendingRequests++;
     try {
         const uniqueId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
         const response = await fetch('/api/camera/stream-frame?t=' + uniqueId, {
@@ -580,8 +590,50 @@ async function fetchFrame() {
         streamTotalBytes += blob.size;
         frameCount++;
 
-        // 显示图像
-        const url = URL.createObjectURL(blob);
+        // 读取后端附加的帧时间戳（毫秒），用于前端排序消除并发乱序
+        const tsStr = response.headers.get('X-Frame-Timestamp');
+        const timestamp = tsStr ? parseInt(tsStr, 10) : Date.now();
+
+        // 入队（仅当还在监控且队列未满时）
+        if (monitorActive && frameQueue.length < MAX_QUEUE_SIZE) {
+            frameQueue.push({ blob, timestamp });
+
+            // 更新 FPS 统计（基于接收到的帧，反映相机+网络实际能力）
+            const now = performance.now();
+            fpsCounter.frames++;
+            const elapsed = now - fpsCounter.lastTs;
+            if (elapsed >= 1000) {
+                fpsCounter.fps = (fpsCounter.frames * 1000 / elapsed).toFixed(1);
+                fpsCounter.frames = 0;
+                fpsCounter.lastTs = now;
+                document.getElementById('actual-fps').textContent = fpsCounter.fps + ' fps';
+                document.getElementById('frame-count').textContent = frameCount;
+                document.getElementById('stream-bytes').textContent = formatBytes(streamTotalBytes);
+                document.getElementById('stream-fps-display').textContent = 'FPS: ' + (fpsCounter.fps || '--');
+            }
+        }
+    } catch (e) {
+        // 帧获取失败可能是临时错误，不停止，由流水线自动重试
+        console.warn('Frame fetch failed:', e);
+    } finally {
+        pendingRequests--;
+        // 请求完成后，如果还在监控，立即尝试补充（维持流水线深度）
+        if (monitorActive) {
+            requestFrame();
+        }
+    }
+}
+
+// 消费者：按目标帧率从队列取帧显示
+// 队列空时保持上一帧，队列有积压时按固定节奏消费
+function displayLoop() {
+    if (!monitorActive) return;
+
+    if (frameQueue.length > 0) {
+        // 并发请求可能导致帧乱序到达，按时间戳升序排序后取最早的一帧展示
+        frameQueue.sort((a, b) => a.timestamp - b.timestamp);
+        const item = frameQueue.shift();
+        const url = URL.createObjectURL(item.blob);
         const img = document.getElementById('stream-image');
         if (currentBlobUrl) {
             URL.revokeObjectURL(currentBlobUrl);
@@ -589,32 +641,18 @@ async function fetchFrame() {
         currentBlobUrl = url;
         img.src = url;
 
-        // 更新FPS统计
-        const now = performance.now();
-        fpsCounter.frames++;
-        const elapsed = now - fpsCounter.lastTs;
-        if (elapsed >= 1000) {
-            fpsCounter.fps = (fpsCounter.frames * 1000 / elapsed).toFixed(1);
-            fpsCounter.frames = 0;
-            fpsCounter.lastTs = now;
-            document.getElementById('actual-fps').textContent = fpsCounter.fps + ' fps';
-            document.getElementById('frame-count').textContent = frameCount;
-            document.getElementById('stream-bytes').textContent = formatBytes(streamTotalBytes);
-            document.getElementById('stream-fps-display').textContent = 'FPS: ' + (fpsCounter.fps || '--');
-        }
-    } catch (e) {
-        // 帧获取失败可能是临时错误，不立即停止，等下一次重试
-        console.warn('Frame fetch failed:', e);
-    } finally {
-        // 当前帧处理完成，根据目标帧率计算下一次请求的延迟
-        // 如果上一帧耗时小于目标间隔，等待剩余时间；否则立即请求下一帧
-        if (monitorActive) {
-            const fetchDuration = performance.now() - fetchStartTime;
-            const targetInterval = currentFrameIntervalMs;
-            const delay = Math.max(0, targetInterval - fetchDuration);
-            streamTimer = setTimeout(fetchFrame, delay);
-        }
+        // 更新时间戳显示
+        const tsEl = document.getElementById('stream-timestamp');
+        if (tsEl) tsEl.textContent = 'TS: ' + item.timestamp + ' ms';
     }
+    // else: 队列空，保持上一帧显示（避免闪烁）
+
+    // 队列有空间，触发生产者补充（维持流水线）
+    if (frameQueue.length < MAX_QUEUE_SIZE && pendingRequests < MAX_PENDING_REQUESTS) {
+        requestFrame();
+    }
+
+    displayTimer = setTimeout(displayLoop, currentFrameIntervalMs);
 }
 
 // 启动监控：HTTP轮询方式，不使用WebSocket
@@ -637,9 +675,11 @@ async function startMonitor() {
     statusDot.className = 'status-dot busy';
     statusText.textContent = '正在启动相机...';
 
-    // 重置统计
+    // 重置统计和缓冲队列
     frameCount = 0;
     streamTotalBytes = 0;
+    frameQueue = [];
+    pendingRequests = 0;
     fpsCounter = { frames: 0, lastTs: performance.now(), fps: 0 };
 
     try {
@@ -653,7 +693,7 @@ async function startMonitor() {
         }
         const data = await resp.json();
         console.log('Stream start:', data);
-        
+
         // 根据配置设置帧间隔
         currentFrameIntervalMs = data.frameIntervalMs || 50;
 
@@ -664,9 +704,12 @@ async function startMonitor() {
         stats.style.display = 'flex';
         stopBtn.disabled = false;
 
-        // 2. 启动递归 setTimeout 获取帧链
-        // fetchFrame 完成后会自动调度下一次请求
-        fetchFrame();
+        // 2. 启动显示循环（消费者，按目标帧率取帧显示）
+        displayLoop();
+        // 3. 启动 N 个并发请求填满流水线（生产者，隐藏网络延迟）
+        for (let i = 0; i < MAX_PENDING_REQUESTS; i++) {
+            requestFrame();
+        }
         
     } catch (e) {
         console.error('Start monitor failed:', e);
@@ -692,11 +735,14 @@ async function stopMonitor() {
     const wrapper = document.getElementById('stream-wrapper');
     const stats = document.getElementById('stream-stats');
 
-    // 清除帧获取定时器
-    if (streamTimer) {
-        clearTimeout(streamTimer);
-        streamTimer = null;
+    // 清除显示循环定时器
+    if (displayTimer) {
+        clearTimeout(displayTimer);
+        displayTimer = null;
     }
+
+    // 清空帧队列（pending 请求会因 monitorActive=false 自然停止入队）
+    frameQueue = [];
 
     // 释放当前图像URL
     if (currentBlobUrl) {
@@ -711,6 +757,10 @@ async function stopMonitor() {
     wrapper.style.display = 'none';
     placeholder.style.display = 'flex';
     stats.style.display = 'none';
+
+    // 重置时间戳显示
+    const tsEl = document.getElementById('stream-timestamp');
+    if (tsEl) tsEl.textContent = 'TS: --';
 
     // 通知后端停止推流模式
     try {

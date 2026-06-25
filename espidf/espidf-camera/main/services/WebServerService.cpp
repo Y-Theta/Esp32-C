@@ -681,7 +681,14 @@ esp_err_t WebServerService::apiStreamFrameHandler(httpd_req_t* req) {
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
     httpd_resp_set_hdr(req, "Pragma", "no-cache");
-    httpd_resp_set_hdr(req, "Connection", "close");
+    // 启用 keep-alive：复用 TCP 连接，避免每次帧请求都重新握手（节省 ~10-30ms/帧）
+    // 必须有正确的 Content-Length，否则会退化为 chunked 编码导致连接关闭
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+
+    // 附加帧时间戳（开机后毫秒，单调递增），前端按此排序以消除并发请求导致的乱序
+    char ts_str[32];
+    snprintf(ts_str, sizeof(ts_str), "%llu", (unsigned long long)getCurrentTimeMs());
+    httpd_resp_set_hdr(req, "X-Frame-Timestamp", ts_str);
 
     // 设置 Content-Length 后用 httpd_resp_send 一次发送
     // httpd 内部会使用 send() 直接发送，避免分段 chunk 编码开销
@@ -690,7 +697,7 @@ esp_err_t WebServerService::apiStreamFrameHandler(httpd_req_t* req) {
     httpd_resp_set_hdr(req, "Content-Length", content_len);
 
     esp_err_t ret = httpd_resp_send(req, (const char*)fb->buf, fb->len);
-    
+
     esp_camera_fb_return(fb);
     return ret;
 }
@@ -740,7 +747,9 @@ void WebServerService::start() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.lru_purge_enable = true;
-    config.max_open_sockets = 6;
+    // LWIP_MAX_SOCKETS=10，HTTP服务器内部占用3个socket，故 max_open_sockets 上限=7
+    // 分配：并发帧请求(2) + 内存/拍照状态轮询(2) + 浏览器其他请求(3) = 7
+    config.max_open_sockets = 7;
     config.stack_size = 8192;
     // ESP-IDF 默认 max_uri_handlers=8，本服务有16个URI，必须调大！
     // 否则超出数量的URI会静默注册失败，访问时返回404
