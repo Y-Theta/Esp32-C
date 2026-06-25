@@ -26,6 +26,39 @@
     padding: 0;
 }
 
+/* Memory Panel */
+.memory-panel {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(10px);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: monospace;
+    display: flex;
+    gap: 16px;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.memory-item {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.memory-label {
+    font-weight: 600;
+    color: #93c5fd;
+}
+
+.memory-value {
+    color: #fbbf24;
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     background-color: var(--bg-body);

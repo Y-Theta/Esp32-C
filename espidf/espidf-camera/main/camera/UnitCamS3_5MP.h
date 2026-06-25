@@ -43,6 +43,7 @@ public:
     void SetBrightness(int brightness);
     void SetSpecialEffect(int effect);
     void ApplyCameraConfig();
+    void SetAllCameraConfig(int frameSize, int jpegQuality, int wbMode, int specialEffect, int contrast, int saturation, int brightness);
 
 private:
     UnitCamS3_5MP() = default;

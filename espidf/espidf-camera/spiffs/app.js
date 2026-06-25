@@ -31,6 +31,29 @@ let cameraStatus = {
 
 let isTakingPhoto = false;
 
+// 内存状态刷新定时器
+let memoryRefreshTimer = null;
+
+// 更新内存状态显示
+async function updateMemoryStatus() {
+    try {
+        const response = await fetch('/api/memory-status');
+        if (response.ok) {
+            const data = await response.json();
+            
+            // 更新 RAM
+            document.getElementById('ram-used').textContent = formatBytes(data.ram.used);
+            document.getElementById('ram-total').textContent = formatBytes(data.ram.total);
+            
+            // 更新 PSRAM
+            document.getElementById('psram-used').textContent = formatBytes(data.psram.used);
+            document.getElementById('psram-total').textContent = formatBytes(data.psram.total);
+        }
+    } catch (e) {
+        console.error('Failed to update memory status:', e);
+    }
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     initTabs();
@@ -38,6 +61,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initButtons();
     loadConfig();
     loadCameraStatus();
+    
+    // 立即更新一次内存状态
+    updateMemoryStatus();
+    
+    // 每隔 1 秒刷新内存状态
+    memoryRefreshTimer = setInterval(updateMemoryStatus, 1000);
 });
 
 // Tab 导航
@@ -165,6 +194,20 @@ function setSelectValue(id, value) {
     }
 }
 
+// 查询拍照状态
+async function checkPhotoStatus(targetVersion) {
+    try {
+        const response = await fetch('/api/photo-status');
+        if (response.ok) {
+            const data = await response.json();
+            return data;
+        }
+    } catch (e) {
+        console.error('Failed to check photo status:', e);
+    }
+    return null;
+}
+
 // 拍照功能
 async function capturePhoto() {
     if (isTakingPhoto) return;
@@ -180,34 +223,155 @@ async function capturePhoto() {
     statusElement.textContent = '正在拍照...';
     document.querySelector('#capture-status').parentElement.querySelector('.status-dot').classList.add('busy');
 
+    // 先隐藏并清空旧图片 - 使用透明占位图避免触发请求
+    placeholder.style.display = 'block';
+    imageContainer.style.display = 'none';
+    const img = document.getElementById('captured-photo');
+    // 释放旧的 blob URL（如果存在）
+    if (img.dataset.blobUrl) {
+        URL.revokeObjectURL(img.dataset.blobUrl);
+        delete img.dataset.blobUrl;
+    }
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; // 1x1 透明 GIF
+
     try {
         const response = await fetch('/api/take-photo', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
         });
 
         if (response.ok) {
             const data = await response.json();
 
             if (data.success) {
-                statusElement.textContent = '拍照成功';
+                const targetVersion = data.photoVersion;
+                console.log('Waiting for photo version:', targetVersion);
+
+                // 轮询查询拍照状态，直到新照片准备好
+                let photoReady = false;
+                let maxRetries = 20; // 最多等待约6秒
+                let retryCount = 0;
+
+                while (!photoReady && retryCount < maxRetries) {
+                    const statusData = await checkPhotoStatus(targetVersion);
+                    if (statusData) {
+                        if (statusData.photoVersion >= targetVersion && statusData.newPhotoReady) {
+                            photoReady = true;
+                            console.log('New photo ready, version:', statusData.photoVersion);
+                        } else if (!statusData.isTakingPhoto) {
+                            // 如果已经停止拍照但照片没准备好，多等一会儿
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                        }
+                    }
+                    if (!photoReady) {
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                        retryCount++;
+                    }
+                }
+
+                statusElement.textContent = '图片加载中...';
                 document.getElementById('photo-size').textContent = formatBytes(data.photoSize);
                 document.getElementById('photo-time').textContent = new Date().toLocaleString();
 
-                placeholder.style.display = 'none';
-                imageContainer.style.display = 'block';
-                photoInfo.style.display = 'flex';
+                // 保持隐藏图片容器，先不显示
+                placeholder.style.display = 'block';
+                imageContainer.style.display = 'none';
+                photoInfo.style.display = 'none';
 
-                await new Promise(resolve => setTimeout(resolve, 300));
-
-                const img = document.getElementById('captured-photo');
-                img.src = data.photoUrl + '?t=' + Date.now();
-                img.onload = () => {
-                    imageContainer.style.display = 'block';
-                };
-                img.onerror = () => {
-                    statusElement.textContent = '图片加载失败';
-                };
+                // 关键修复：使用 fetch + blob 方式获取图片，完全绕过浏览器缓存
+                // 直接设置 img.src 即使 URL 不同，浏览器仍可能从内存缓存读取
+                // 使用 fetch 获取二进制数据，转为 blob URL，确保每次都是最新数据
+                const uniqueId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                // 直接使用 /api/last-photo 接口（即 data.photoUrl 的值）
+                const photoUrl = '/api/last-photo?t=' + uniqueId + '&v=' + targetVersion + '&nocache=' + uniqueId;
+                
+                let loadTimeout = null;
+                let loadComplete = false;
+                
+                // 设置超时保护，防止卡死
+                loadTimeout = setTimeout(() => {
+                    if (!loadComplete) {
+                        loadComplete = true;
+                        statusElement.textContent = '图片加载超时';
+                        console.error('Image load timeout');
+                    }
+                }, 15000); // 15秒超时（大图片需要更长时间）
+                
+                try {
+                    const imgResponse = await fetch(photoUrl, {
+                        cache: 'no-store', // 强制不使用缓存
+                        headers: {
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'Pragma': 'no-cache'
+                        }
+                    });
+                    
+                    if (!imgResponse.ok) {
+                        throw new Error('HTTP ' + imgResponse.status);
+                    }
+                    
+                    const blob = await imgResponse.blob();
+                    
+                    if (loadComplete) {
+                        // 已经超时了，丢弃结果
+                        URL.revokeObjectURL(URL.createObjectURL(blob));
+                        return;
+                    }
+                    
+                    // 创建 blob URL（每次都不同，绝对无法缓存）
+                    const blobUrl = URL.createObjectURL(blob);
+                    
+                    // 释放之前的 blob URL
+                    if (img.dataset.blobUrl) {
+                        URL.revokeObjectURL(img.dataset.blobUrl);
+                    }
+                    img.dataset.blobUrl = blobUrl;
+                    
+                    // 设置图片加载回调
+                    img.onload = () => {
+                        if (!loadComplete) {
+                            loadComplete = true;
+                            if (loadTimeout) {
+                                clearTimeout(loadTimeout);
+                            }
+                            // 图片完全加载后再展示
+                            placeholder.style.display = 'none';
+                            imageContainer.style.display = 'block';
+                            photoInfo.style.display = 'flex';
+                            statusElement.textContent = '拍照成功';
+                            console.log('Image loaded successfully via blob');
+                        }
+                    };
+                    
+                    img.onerror = () => {
+                        if (!loadComplete) {
+                            loadComplete = true;
+                            if (loadTimeout) {
+                                clearTimeout(loadTimeout);
+                            }
+                            statusElement.textContent = '图片加载失败';
+                            console.error('Image failed to load');
+                        }
+                    };
+                    
+                    // 设置 src 触发 onload
+                    img.src = blobUrl;
+                    
+                } catch (e) {
+                    if (!loadComplete) {
+                        loadComplete = true;
+                        if (loadTimeout) {
+                            clearTimeout(loadTimeout);
+                        }
+                        statusElement.textContent = '图片获取失败: ' + e.message;
+                        console.error('Image fetch failed:', e);
+                    }
+                }
 
                 // 拍照会初始化相机，刷新状态
                 loadCameraStatus();
@@ -237,7 +401,7 @@ async function applyCameraSettings() {
 
     const settings = {
         frameSize: parseInt(document.getElementById('frame-size').value),
-        quality: parseInt(document.getElementById('jpeg-quality').value),
+        jpegQuality: parseInt(document.getElementById('jpeg-quality').value),
         wbMode: parseInt(document.getElementById('wb-mode').value),
         specialEffect: parseInt(document.getElementById('special-effect').value),
         contrast: parseInt(document.getElementById('contrast').value),
@@ -246,53 +410,23 @@ async function applyCameraSettings() {
     };
 
     try {
-        // 发送所有设置请求（并行）
-        const requests = [
-            fetch('/api/camera/frame-size', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ frameSize: settings.frameSize })
-            }),
-            fetch('/api/camera/quality', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ quality: settings.quality })
-            }),
-            fetch('/api/camera/white-balance', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ wbMode: settings.wbMode })
-            }),
-            fetch('/api/camera/special-effect', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ effect: settings.specialEffect })
-            }),
-            fetch('/api/camera/contrast', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contrast: settings.contrast })
-            }),
-            fetch('/api/camera/saturation', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ saturation: settings.saturation })
-            }),
-            fetch('/api/camera/brightness', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ brightness: settings.brightness })
-            })
-        ];
+        // 发送所有设置请求（单个统一接口）
+        const response = await fetch('/api/camera/set-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
 
-        const results = await Promise.all(requests);
-        const allOk = results.every(r => r.ok);
-
-        if (allOk) {
-            showMessage(statusEl, '相机设置已应用', 'success');
-            await loadCameraStatus();
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                showMessage(statusEl, '相机设置已应用', 'success');
+                await loadCameraStatus();
+            } else {
+                showMessage(statusEl, '设置应用失败: ' + (data.error || '未知错误'), 'error');
+            }
         } else {
-            showMessage(statusEl, '部分设置应用失败', 'error');
+            showMessage(statusEl, '请求失败', 'error');
         }
     } catch (e) {
         showMessage(statusEl, '错误: ' + e.toString(), 'error');

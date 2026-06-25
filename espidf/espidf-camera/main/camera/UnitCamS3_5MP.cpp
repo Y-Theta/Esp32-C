@@ -22,7 +22,30 @@ void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t*)> processPhoto) {
 
     SetLed(true);
 
-    fb = esp_camera_fb_get();
+    // 关键修复：丢弃第一帧！
+    // 摄像头驱动内部有缓冲区，第一帧可能是旧的缓冲帧
+    // 必须丢弃第一帧，获取第二帧才是真正的新画面
+    ESP_LOGI(TAG, "Discarding first frame (may be stale)...");
+    camera_fb_t* stale_fb = esp_camera_fb_get();
+    if (stale_fb) {
+        esp_camera_fb_return(stale_fb);
+        stale_fb = nullptr;
+    }
+    // 短暂延迟，让摄像头捕获新画面
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+
+    // 获取真正的最新帧 - 尝试多次以确保能获取到稳定的帧
+    for (int i = 0; i < 3; i++) {
+        fb = esp_camera_fb_get();
+        if (fb) {
+            if (i > 0) {
+                ESP_LOGI(TAG, "Got valid frame on attempt %d", i + 1);
+            }
+            break;
+        }
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+    }
+    
     if (!fb) {
         ESP_LOGI(TAG, "Failed to get camera frame");
         SetLed(false);
@@ -271,6 +294,25 @@ void UnitCamS3_5MP::SetSpecialEffect(int effect) {
             ESP_LOGI(TAG, "Set special effect to %d", effect);
         }
     }
+}
+
+void UnitCamS3_5MP::SetAllCameraConfig(int frameSize, int jpegQuality, int wbMode, int specialEffect, int contrast, int saturation, int brightness) {
+    ESP_LOGI(TAG, "Setting all camera config at once");
+    
+    // 保存所有配置到 StorageService
+    StorageService& storage = StorageService::getInstance();
+    CONFIG::SystemConfig_t config = storage.getConfig();
+    config.frameSize = frameSize;
+    config.jpegQuantity = jpegQuality;
+    config.wbMode = wbMode;
+    config.specialEffect = specialEffect;
+    config.contrast = contrast;
+    config.saturation = saturation;
+    config.brightness = brightness;
+    storage.setConfig(config);
+    
+    // 重新初始化相机以应用所有配置
+    ReloadConfig();
 }
 
 void UnitCamS3_5MP::ApplyCameraConfig() {

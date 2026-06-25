@@ -39,18 +39,16 @@ private:
     static esp_err_t apiConnectSTAHandler(httpd_req_t* req);
     static esp_err_t apiGetStatusHandler(httpd_req_t* req);
     static esp_err_t apiLastPhotoHandler(httpd_req_t* req);
-    static esp_err_t apiSetFrameSizeHandler(httpd_req_t* req);
-    static esp_err_t apiSetJpegQualityHandler(httpd_req_t* req);
-    static esp_err_t apiSetWhiteBalanceHandler(httpd_req_t* req);
-    static esp_err_t apiSetContrastHandler(httpd_req_t* req);
-    static esp_err_t apiSetSaturationHandler(httpd_req_t* req);
-    static esp_err_t apiSetBrightnessHandler(httpd_req_t* req);
-    static esp_err_t apiSetSpecialEffectHandler(httpd_req_t* req);
-    static esp_err_t apiApplyCameraConfigHandler(httpd_req_t* req);
+    static esp_err_t apiPhotoStatusHandler(httpd_req_t* req);
+    static esp_err_t apiMemoryStatusHandler(httpd_req_t* req);
+    static esp_err_t apiSetAllCameraConfigHandler(httpd_req_t* req);
     static esp_err_t apiCameraStatusHandler(httpd_req_t* req);
 
     // Helper to read file from SPIFFS
     static esp_err_t serveFile(httpd_req_t* req, const char* path, const char* contentType);
+
+    // 定期清理未使用的资源
+    static void cleanupOldResources();
 
     httpd_handle_t _server = nullptr;
 };
