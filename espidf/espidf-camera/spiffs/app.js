@@ -7,6 +7,7 @@ let currentConfig = {
     postInterval: 60,
     jpegQuantity: 1,
     frameSize: 10,
+    streamFps: 20,
     wbMode: 0,
     contrast: 3,
     saturation: 3,
@@ -22,6 +23,7 @@ let cameraStatus = {
     initialized: false,
     frameSize: 10,
     jpegQuantity: 1,
+    streamFps: 20,
     wbMode: 0,
     contrast: 3,
     saturation: 3,
@@ -33,6 +35,15 @@ let isTakingPhoto = false;
 
 // 内存状态刷新定时器
 let memoryRefreshTimer = null;
+
+// ===== 监控流相关 (HTTP 轮询方式，更稳定) =====
+let monitorActive = false;         // 监控是否激活
+let streamTimer = null;            // 帧获取定时器
+let frameCount = 0;                // 已接收帧数
+let streamTotalBytes = 0;          // 累计接收字节数
+let fpsCounter = { frames: 0, lastTs: 0, fps: 0 };
+let currentBlobUrl = null;         // 当前 img 的 blob URL，用于释放
+let currentFrameIntervalMs = 50;   // 帧间隔，由配置决定
 
 // 更新内存状态显示
 async function updateMemoryStatus() {
@@ -76,12 +87,21 @@ function initTabs() {
 
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
+            const targetTab = tab.getAttribute('data-tab');
+            const currentActiveTab = document.querySelector('.tab.active').getAttribute('data-tab');
+            
             tabs.forEach(t => t.classList.remove('active'));
             tabPanes.forEach(p => p.classList.remove('active'));
 
             tab.classList.add('active');
-            const targetId = tab.getAttribute('data-tab') + '-tab';
+            const targetId = targetTab + '-tab';
             document.getElementById(targetId).classList.add('active');
+
+            // 从推流页签切换到其他页签时自动关闭推流
+            if (currentActiveTab === 'monitor' && targetTab !== 'monitor') {
+                stopMonitor();
+            }
+            // 切换到推流页签时不自动启动，需要手动点击按钮
         });
     });
 }
@@ -91,7 +111,8 @@ function initRangeInputs() {
     const rangeMap = {
         'contrast': 'contrast-value',
         'saturation': 'saturation-value',
-        'brightness': 'brightness-value'
+        'brightness': 'brightness-value',
+        'stream-fps': 'stream-fps-value'
     };
 
     Object.entries(rangeMap).forEach(([inputId, valueId]) => {
@@ -111,6 +132,8 @@ function initButtons() {
     document.getElementById('save-config-btn').addEventListener('click', saveConfig);
     document.getElementById('connect-sta-btn').addEventListener('click', connectToSTA);
     document.getElementById('apply-camera-btn').addEventListener('click', applyCameraSettings);
+    document.getElementById('monitor-start-btn').addEventListener('click', startMonitor);
+    document.getElementById('monitor-stop-btn').addEventListener('click', stopMonitor);
 }
 
 // 加载系统配置
@@ -181,6 +204,11 @@ function fillCameraForm(config) {
     document.getElementById('saturation-value').textContent = config.saturation;
     document.getElementById('brightness').value = config.brightness;
     document.getElementById('brightness-value').textContent = config.brightness;
+    
+    if (config.streamFps) {
+        document.getElementById('stream-fps').value = config.streamFps;
+        document.getElementById('stream-fps-value').textContent = config.streamFps;
+    }
 }
 
 function setSelectValue(id, value) {
@@ -283,11 +311,8 @@ async function capturePhoto() {
                 imageContainer.style.display = 'none';
                 photoInfo.style.display = 'none';
 
-                // 关键修复：使用 fetch + blob 方式获取图片，完全绕过浏览器缓存
-                // 直接设置 img.src 即使 URL 不同，浏览器仍可能从内存缓存读取
-                // 使用 fetch 获取二进制数据，转为 blob URL，确保每次都是最新数据
+                // 使用 fetch + blob 方式获取图片，完全绕过浏览器缓存
                 const uniqueId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-                // 直接使用 /api/last-photo 接口（即 data.photoUrl 的值）
                 const photoUrl = '/api/last-photo?t=' + uniqueId + '&v=' + targetVersion + '&nocache=' + uniqueId;
                 
                 let loadTimeout = null;
@@ -300,11 +325,11 @@ async function capturePhoto() {
                         statusElement.textContent = '图片加载超时';
                         console.error('Image load timeout');
                     }
-                }, 15000); // 15秒超时（大图片需要更长时间）
+                }, 15000); // 15秒超时
                 
                 try {
                     const imgResponse = await fetch(photoUrl, {
-                        cache: 'no-store', // 强制不使用缓存
+                        cache: 'no-store',
                         headers: {
                             'Cache-Control': 'no-cache, no-store, must-revalidate',
                             'Pragma': 'no-cache'
@@ -318,12 +343,11 @@ async function capturePhoto() {
                     const blob = await imgResponse.blob();
                     
                     if (loadComplete) {
-                        // 已经超时了，丢弃结果
                         URL.revokeObjectURL(URL.createObjectURL(blob));
                         return;
                     }
                     
-                    // 创建 blob URL（每次都不同，绝对无法缓存）
+                    // 创建 blob URL
                     const blobUrl = URL.createObjectURL(blob);
                     
                     // 释放之前的 blob URL
@@ -406,11 +430,12 @@ async function applyCameraSettings() {
         specialEffect: parseInt(document.getElementById('special-effect').value),
         contrast: parseInt(document.getElementById('contrast').value),
         saturation: parseInt(document.getElementById('saturation').value),
-        brightness: parseInt(document.getElementById('brightness').value)
+        brightness: parseInt(document.getElementById('brightness').value),
+        streamFps: parseInt(document.getElementById('stream-fps').value)
     };
 
     try {
-        // 发送所有设置请求（单个统一接口）
+        // 发送所有设置请求
         const response = await fetch('/api/camera/set-all', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -421,6 +446,11 @@ async function applyCameraSettings() {
             const data = await response.json();
             if (data.success) {
                 showMessage(statusEl, '相机设置已应用', 'success');
+                // 如果正在推流，需要重启推流使帧率生效
+                if (monitorActive) {
+                    await stopMonitor();
+                    await startMonitor();
+                }
                 await loadCameraStatus();
             } else {
                 showMessage(statusEl, '设置应用失败: ' + (data.error || '未知错误'), 'error');
@@ -455,6 +485,7 @@ async function saveConfig() {
     // 同时保存相机参数到配置文件中
     currentConfig.jpegQuantity = parseInt(document.getElementById('jpeg-quality').value);
     currentConfig.frameSize = parseInt(document.getElementById('frame-size').value);
+    currentConfig.streamFps = parseInt(document.getElementById('stream-fps').value);
     currentConfig.wbMode = parseInt(document.getElementById('wb-mode').value);
     currentConfig.specialEffect = parseInt(document.getElementById('special-effect').value);
     currentConfig.contrast = parseInt(document.getElementById('contrast').value);
@@ -505,6 +536,177 @@ async function connectToSTA() {
         connectBtn.disabled = false;
     }
 }
+
+// ===== 监控流功能 (HTTP 轮询方式) =====
+
+// 获取一帧图像
+async function fetchFrame() {
+    if (!monitorActive) return;
+    
+    try {
+        const uniqueId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        const response = await fetch('/api/camera/stream-frame?t=' + uniqueId, {
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+
+        const blob = await response.blob();
+        streamTotalBytes += blob.size;
+        frameCount++;
+
+        // 显示图像
+        const url = URL.createObjectURL(blob);
+        const img = document.getElementById('stream-image');
+        if (currentBlobUrl) {
+            URL.revokeObjectURL(currentBlobUrl);
+        }
+        currentBlobUrl = url;
+        img.src = url;
+
+        // 更新FPS统计
+        const now = performance.now();
+        fpsCounter.frames++;
+        const elapsed = now - fpsCounter.lastTs;
+        if (elapsed >= 1000) {
+            fpsCounter.fps = (fpsCounter.frames * 1000 / elapsed).toFixed(1);
+            fpsCounter.frames = 0;
+            fpsCounter.lastTs = now;
+            document.getElementById('actual-fps').textContent = fpsCounter.fps + ' fps';
+            document.getElementById('frame-count').textContent = frameCount;
+            document.getElementById('stream-bytes').textContent = formatBytes(streamTotalBytes);
+            document.getElementById('stream-fps').textContent = 'FPS: ' + (fpsCounter.fps || '--');
+        }
+    } catch (e) {
+        // 帧获取失败可能是临时错误，不立即停止，等下一次重试
+        console.warn('Frame fetch failed:', e);
+    }
+}
+
+// 启动监控：HTTP轮询方式，不使用WebSocket
+async function startMonitor() {
+    if (monitorActive) {
+        console.log('Monitor already active');
+        return;
+    }
+    monitorActive = true;
+
+    const statusDot = document.getElementById('monitor-status-dot');
+    const statusText = document.getElementById('monitor-status');
+    const startBtn = document.getElementById('monitor-start-btn');
+    const stopBtn = document.getElementById('monitor-stop-btn');
+    const placeholder = document.getElementById('stream-placeholder');
+    const wrapper = document.getElementById('stream-wrapper');
+    const stats = document.getElementById('stream-stats');
+
+    startBtn.disabled = true;
+    statusDot.className = 'status-dot busy';
+    statusText.textContent = '正在启动相机...';
+
+    // 重置统计
+    frameCount = 0;
+    streamTotalBytes = 0;
+    fpsCounter = { frames: 0, lastTs: performance.now(), fps: 0 };
+
+    try {
+        // 1. 通知后端启动推流模式
+        const resp = await fetch('/api/camera/stream-start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        if (!resp.ok) {
+            throw new Error('stream-start failed: HTTP ' + resp.status);
+        }
+        const data = await resp.json();
+        console.log('Stream start:', data);
+        
+        // 根据配置设置帧间隔
+        currentFrameIntervalMs = data.frameIntervalMs || 50;
+
+        statusText.textContent = '监控中';
+        statusDot.className = 'status-dot';
+        placeholder.style.display = 'none';
+        wrapper.style.display = 'block';
+        stats.style.display = 'flex';
+        stopBtn.disabled = false;
+
+        // 2. 启动定时轮询获取帧
+        streamTimer = setInterval(fetchFrame, currentFrameIntervalMs);
+        
+        // 立即获取第一帧
+        fetchFrame();
+        
+    } catch (e) {
+        console.error('Start monitor failed:', e);
+        statusDot.className = 'status-dot offline';
+        statusText.textContent = '启动失败: ' + e.message;
+        monitorActive = false;
+        startBtn.disabled = false;
+    }
+}
+
+// 停止监控：清除定时器，通知后端停止
+async function stopMonitor() {
+    if (!monitorActive) {
+        return;
+    }
+    monitorActive = false;
+
+    const statusDot = document.getElementById('monitor-status-dot');
+    const statusText = document.getElementById('monitor-status');
+    const startBtn = document.getElementById('monitor-start-btn');
+    const stopBtn = document.getElementById('monitor-stop-btn');
+    const placeholder = document.getElementById('stream-placeholder');
+    const wrapper = document.getElementById('stream-wrapper');
+    const stats = document.getElementById('stream-stats');
+
+    // 清除帧获取定时器
+    if (streamTimer) {
+        clearInterval(streamTimer);
+        streamTimer = null;
+    }
+
+    // 释放当前图像URL
+    if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+    }
+
+    statusDot.className = 'status-dot offline';
+    statusText.textContent = '已停止';
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    wrapper.style.display = 'none';
+    placeholder.style.display = 'flex';
+    stats.style.display = 'none';
+
+    // 通知后端停止推流模式
+    try {
+        await fetch('/api/camera/stream-stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        console.log('Stream stop requested');
+    } catch (e) {
+        console.error('Stream stop failed:', e);
+    }
+}
+
+// 页面卸载时清理
+window.addEventListener('beforeunload', () => {
+    if (monitorActive) {
+        stopMonitor();
+    }
+    if (memoryRefreshTimer) {
+        clearInterval(memoryRefreshTimer);
+    }
+});
 
 // 工具函数：显示消息
 function showMessage(element, text, type) {

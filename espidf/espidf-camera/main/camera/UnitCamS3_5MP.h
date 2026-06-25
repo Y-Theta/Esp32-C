@@ -45,6 +45,11 @@ public:
     void ApplyCameraConfig();
     void SetAllCameraConfig(int frameSize, int jpegQuality, int wbMode, int specialEffect, int contrast, int saturation, int brightness);
 
+    // 实时监控模式：使用 VGA + 双缓冲 + LATEST 抓取模式以保证帧率
+    void StartStreamingMode();
+    void StopStreamingMode();
+    bool IsStreamingMode() const { return _streamingMode; }
+
 private:
     UnitCamS3_5MP() = default;
     ~UnitCamS3_5MP() = default;
@@ -56,4 +61,5 @@ private:
     void btn_init();
 
     bool _initialized = false;
+    bool _streamingMode = false;
 };

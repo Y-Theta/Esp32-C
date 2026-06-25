@@ -29,6 +29,10 @@
                 <span class="tab-icon">📷</span>
                 <span class="tab-label">相机</span>
             </button>
+            <button class="tab" data-tab="monitor">
+                <span class="tab-icon">🎥</span>
+                <span class="tab-label">监控</span>
+            </button>
             <button class="tab" data-tab="network">
                 <span class="tab-icon">📶</span>
                 <span class="tab-label">网络</span>
@@ -76,6 +80,61 @@
                         <button id="capture-btn" class="btn-primary">
                             <span class="btn-icon">📸</span>
                             <span>拍照</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 监控 Tab -->
+            <div id="monitor-tab" class="tab-pane">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>实时监控</h2>
+                        <div class="status-pill">
+                            <span id="monitor-status-dot" class="status-dot offline"></span>
+                            <span id="monitor-status">未连接</span>
+                        </div>
+                    </div>
+
+                    <div class="stream-container" id="stream-placeholder">
+                        <div class="placeholder-content">
+                            <span class="placeholder-icon">🎥</span>
+                            <p>点击"开始监控"按钮启动实时推流</p>
+                            <p class="stream-hint">HTTP 轮询方式 · 帧率可调 15-30 FPS · VGA分辨率</p>
+                        </div>
+                    </div>
+
+                    <div id="stream-wrapper" class="stream-wrapper" style="display: none;">
+                        <img id="stream-image" alt="Live Stream">
+                        <div class="stream-overlay">
+                            <span id="stream-fps">FPS: --</span>
+                            <span id="stream-resolution">--</span>
+                        </div>
+                    </div>
+
+                    <div class="stream-stats" id="stream-stats" style="display: none;">
+                        <div class="stat-item">
+                            <span class="stat-label">已接收帧</span>
+                            <span class="stat-value" id="frame-count">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">实际帧率</span>
+                            <span class="stat-value" id="actual-fps">0 fps</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">数据量</span>
+                            <span class="stat-value" id="stream-bytes">0 B</span>
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="monitor-start-btn" class="btn-primary">
+                            <span class="btn-icon">▶</span>
+                            <span>开始监控</span>
+                        </button>
+                        <button id="monitor-stop-btn" class="btn-secondary" disabled>
+                            <span class="btn-icon">■</span>
+                            <span>停止监控</span>
                         </button>
                     </div>
                 </div>
@@ -142,6 +201,18 @@
                                     <option value="1" selected>1 - 正常</option>
                                     <option value="2">2 - 低质量</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="stream-fps">推流帧率 <span id="stream-fps-value">20</span> FPS</label>
+                                <input type="range" id="stream-fps" min="15" max="30" value="20">
+                                <div class="range-labels">
+                                    <span>15 FPS</span>
+                                    <span>流畅</span>
+                                    <span>30 FPS</span>
+                                </div>
                             </div>
                         </div>
 

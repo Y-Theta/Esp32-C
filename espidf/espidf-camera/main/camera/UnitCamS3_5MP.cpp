@@ -1,5 +1,7 @@
 #include "camera/UnitCamS3_5MP.h"
 #include "services/StorageService.h"
+#include "services/WifiService.h"
+#include "services/WebServerService.h"
 #include "esp_log.h"
 
 static const char* TAG = "UnitCamS3_5MP";
@@ -109,9 +111,16 @@ void UnitCamS3_5MP::cam_init() {
     cameraConfig.pixel_format = PIXFORMAT_JPEG;
     cameraConfig.frame_size = (framesize_t)config.frameSize;
     cameraConfig.jpeg_quality = 8;
-    cameraConfig.fb_count = 1;
+
+    // 监控模式使用三缓冲 + LATEST 抓取以保证更高帧率；普通拍照使用单缓冲节省内存
+    if (_streamingMode) {
+        cameraConfig.fb_count = 3;
+        cameraConfig.grab_mode = CAMERA_GRAB_LATEST;
+    } else {
+        cameraConfig.fb_count = 1;
+        cameraConfig.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+    }
     cameraConfig.fb_location = CAMERA_FB_IN_PSRAM;
-    cameraConfig.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     cameraConfig.sccb_i2c_port = 1;
 
     esp_err_t err = esp_camera_init(&cameraConfig);
@@ -319,6 +328,37 @@ void UnitCamS3_5MP::ApplyCameraConfig() {
     ReloadConfig();
 }
 
+void UnitCamS3_5MP::StartStreamingMode() {
+    ESP_LOGI(TAG, "Entering streaming mode (VGA, fb_count=3, grab_mode=LATEST)");
+    if (_streamingMode) {
+        ESP_LOGI(TAG, "Already in streaming mode");
+        return;
+    }
+
+    // 强制使用 VGA 分辨率以保证 15fps 帧率
+    StorageService& storage = StorageService::getInstance();
+    CONFIG::SystemConfig_t config = storage.getConfig();
+    if (config.frameSize != (int)FRAMESIZE_VGA) {
+        ESP_LOGI(TAG, "Switching frame size from %d to VGA(%d) for streaming", config.frameSize, (int)FRAMESIZE_VGA);
+        config.frameSize = (int)FRAMESIZE_VGA;
+        storage.setConfig(config);
+    }
+
+    _streamingMode = true;
+    ReloadConfig();
+}
+
+void UnitCamS3_5MP::StopStreamingMode() {
+    ESP_LOGI(TAG, "Leaving streaming mode");
+    if (!_streamingMode) {
+        ESP_LOGI(TAG, "Not in streaming mode, nothing to do");
+        return;
+    }
+
+    _streamingMode = false;
+    ReloadConfig();
+}
+
 void UnitCamS3_5MP::Init() {
     // 初始化存储服务
     StorageService& storage = StorageService::getInstance();
@@ -336,4 +376,73 @@ void UnitCamS3_5MP::Init() {
 
     led_init();
     sd_init();
+}
+
+void UnitCamS3_5MP::Start() {
+    // 启动时直接进入 AP 模式（用于 Web 配置/相机功能）
+    StartForSetting();
+}
+
+void UnitCamS3_5MP::StartForSetting() {
+    StorageService& storage = StorageService::getInstance();
+
+    // 提前注册WebServer回调，WifiService启动AP后会自动启动WebServer
+    WebServerService& webServer = WebServerService::getInstance();
+    webServer.onTakePhotoRequested = []() {
+        UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+        camera.WebTakePhoto([](camera_fb_t* fb) {
+            WebServerService::notifyPhotoCaptured(fb);
+        });
+    };
+    webServer.onConnectToSTRequested = []() {
+        ESP_LOGI(TAG, "Connect to STA requested");
+    };
+
+    // 初始化 WiFi - AP 模式
+    WifiService& wifi = WifiService::getInstance();
+    wifi.init(storage.getConfig().wifiSsid, storage.getConfig().wifiPass);
+
+    // 设置 WiFi 事件回调
+    wifi.onConnected = []() {
+        ESP_LOGI(TAG, "WiFi connected (STA mode)");
+    };
+
+    // 启动 WiFi（优先 AP 模式）
+    wifi.connect(true); // true = 强制 AP 模式
+
+    while (true) {
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+    }
+}
+
+void UnitCamS3_5MP::StartForWorking() {
+    // STA 模式工作逻辑（保留但暂不自动使用）
+    StorageService& storage = StorageService::getInstance();
+
+    WifiService& wifi = WifiService::getInstance();
+    wifi.init(storage.getConfig().wifiSsid, storage.getConfig().wifiPass);
+
+    wifi.onConnected = []() {
+        ESP_LOGI(TAG, "WiFi connected (STA mode), camera ready");
+    };
+
+    wifi.connect();
+
+    while (true) {
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+    }
+}
+
+// 供 Web 服务调用的拍照函数
+void UnitCamS3_5MP::WebTakePhoto(std::function<void(camera_fb_t* buffer)> processPhoto) {
+    if (!_initialized) {
+        ESP_LOGI(TAG, "Camera not initialized, initializing...");
+        cam_init();
+    }
+
+    ESP_LOGI(TAG, "Taking photo via web...");
+    TakePhoto(processPhoto ? processPhoto : [](camera_fb_t *fb) {
+        // 照片数据会在 Web 服务中处理
+        ESP_LOGI(TAG, "Photo taken: %ux%u, %u bytes", fb->width, fb->height, fb->len);
+    });
 }

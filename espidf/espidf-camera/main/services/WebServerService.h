@@ -18,16 +18,17 @@ public:
     void stop();
     bool isRunning() const { return _server != nullptr; }
 
+    httpd_handle_t getServerHandle() const { return _server; }
+
+    // 拍照完成回调，由相机模块调用
+    static void notifyPhotoCaptured(camera_fb_t* fb);
+
     // 回调函数
     std::function<void()> onTakePhotoRequested;
     std::function<void()> onConnectToSTRequested;
     std::function<void()> onDisconnectWiFiRequested;
 
-private:
-    WebServerService() = default;
-    ~WebServerService() = default;
-
-    // HTTP handlers
+    // HTTP handlers - 必须为 public，供文件作用域 URI 结构体引用
     static esp_err_t indexHandler(httpd_req_t* req);
     static esp_err_t cssHandler(httpd_req_t* req);
     static esp_err_t jsHandler(httpd_req_t* req);
@@ -43,12 +44,16 @@ private:
     static esp_err_t apiMemoryStatusHandler(httpd_req_t* req);
     static esp_err_t apiSetAllCameraConfigHandler(httpd_req_t* req);
     static esp_err_t apiCameraStatusHandler(httpd_req_t* req);
+    static esp_err_t apiStreamStartHandler(httpd_req_t* req);
+    static esp_err_t apiStreamStopHandler(httpd_req_t* req);
+    static esp_err_t apiStreamFrameHandler(httpd_req_t* req);
 
     // Helper to read file from SPIFFS
     static esp_err_t serveFile(httpd_req_t* req, const char* path, const char* contentType);
 
-    // 定期清理未使用的资源
-    static void cleanupOldResources();
+private:
+    WebServerService() = default;
+    ~WebServerService() = default;
 
     httpd_handle_t _server = nullptr;
 };

@@ -117,6 +117,12 @@ void StorageService::load() {
     item = cJSON_GetObjectItem(doc, "frameSize");
     if (item && cJSON_IsNumber(item)) _config.frameSize = item->valueint;
 
+    item = cJSON_GetObjectItem(doc, "streamFps");
+    if (item && cJSON_IsNumber(item)) {
+        int fps = item->valueint;
+        if (fps >= 15 && fps <= 30) _config.streamFps = fps;
+    }
+
     item = cJSON_GetObjectItem(doc, "wbMode");
     if (item && cJSON_IsNumber(item)) _config.wbMode = item->valueint;
 
@@ -160,6 +166,7 @@ void StorageService::save() {
     
     cJSON_AddNumberToObject(doc, "jpegQuantity", _config.jpegQuantity);
     cJSON_AddNumberToObject(doc, "frameSize", _config.frameSize);
+    cJSON_AddNumberToObject(doc, "streamFps", _config.streamFps);
 
     cJSON_AddNumberToObject(doc, "wbMode", _config.wbMode);
     cJSON_AddNumberToObject(doc, "contrast", _config.contrast);
