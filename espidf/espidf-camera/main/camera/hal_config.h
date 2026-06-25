@@ -41,8 +41,8 @@
 #define BTN_0 43
 #define BTN_1 44
 
-// Camera
-#define XCLK_FREQ_HZ 20000000
+// Camera - 24MHz XCLK 提高帧率
+#define XCLK_FREQ_HZ 24000000
 
 #define CAMERA_MODULE_NAME "M5Stack-Unit-CamS3"
 #define CAMERA_PIN_PWDN -1

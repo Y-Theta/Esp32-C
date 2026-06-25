@@ -120,7 +120,14 @@ void StorageService::load() {
     item = cJSON_GetObjectItem(doc, "streamFps");
     if (item && cJSON_IsNumber(item)) {
         int fps = item->valueint;
-        if (fps >= 15 && fps <= 30) _config.streamFps = fps;
+        if (fps >= 15 && fps <= 40) _config.streamFps = fps;
+    }
+
+    item = cJSON_GetObjectItem(doc, "streamFrameSize");
+    if (item && cJSON_IsNumber(item)) {
+        int fs = item->valueint;
+        // 推流分辨率限制：96x96(0) ~ VGA(10)
+        if (fs >= 0 && fs <= (int)FRAMESIZE_VGA) _config.streamFrameSize = fs;
     }
 
     item = cJSON_GetObjectItem(doc, "wbMode");
@@ -167,6 +174,7 @@ void StorageService::save() {
     cJSON_AddNumberToObject(doc, "jpegQuantity", _config.jpegQuantity);
     cJSON_AddNumberToObject(doc, "frameSize", _config.frameSize);
     cJSON_AddNumberToObject(doc, "streamFps", _config.streamFps);
+    cJSON_AddNumberToObject(doc, "streamFrameSize", _config.streamFrameSize);
 
     cJSON_AddNumberToObject(doc, "wbMode", _config.wbMode);
     cJSON_AddNumberToObject(doc, "contrast", _config.contrast);

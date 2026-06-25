@@ -107,7 +107,7 @@
                     <div id="stream-wrapper" class="stream-wrapper" style="display: none;">
                         <img id="stream-image" alt="Live Stream">
                         <div class="stream-overlay">
-                            <span id="stream-fps">FPS: --</span>
+                            <span id="stream-fps-display">FPS: --</span>
                             <span id="stream-resolution">--</span>
                         </div>
                     </div>
@@ -206,13 +206,23 @@
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="stream-fps">推流帧率 <span id="stream-fps-value">20</span> FPS</label>
-                                <input type="range" id="stream-fps" min="15" max="30" value="20">
+                                <label for="stream-fps">推流帧率 <span id="stream-fps-value">25</span> FPS</label>
+                                <input type="range" id="stream-fps" min="15" max="40" value="25">
                                 <div class="range-labels">
                                     <span>15 FPS</span>
                                     <span>流畅</span>
-                                    <span>30 FPS</span>
+                                    <span>40 FPS</span>
                                 </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="stream-frame-size">推流分辨率</label>
+                                <select id="stream-frame-size">
+                                    <option value="0">96x96</option>
+                                    <option value="1">QQVGA (160x120)</option>
+                                    <option value="6">QVGA (320x240)</option>
+                                    <option value="10" selected>VGA (640x480)</option>
+                                </select>
                             </div>
                         </div>
 

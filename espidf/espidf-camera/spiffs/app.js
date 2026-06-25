@@ -7,7 +7,7 @@ let currentConfig = {
     postInterval: 60,
     jpegQuantity: 1,
     frameSize: 10,
-    streamFps: 20,
+    streamFps: 25,
     wbMode: 0,
     contrast: 3,
     saturation: 3,
@@ -23,7 +23,7 @@ let cameraStatus = {
     initialized: false,
     frameSize: 10,
     jpegQuantity: 1,
-    streamFps: 20,
+    streamFps: 25,
     wbMode: 0,
     contrast: 3,
     saturation: 3,
@@ -76,8 +76,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 立即更新一次内存状态
     updateMemoryStatus();
     
-    // 每隔 1 秒刷新内存状态
-    memoryRefreshTimer = setInterval(updateMemoryStatus, 1000);
+    // 每 3 秒刷新内存状态（推流时降频避免与帧请求竞争 HTTP 连接）
+    memoryRefreshTimer = setInterval(updateMemoryStatus, 3000);
 });
 
 // Tab 导航
@@ -197,6 +197,7 @@ function fillCameraForm(config) {
     setSelectValue('jpeg-quality', config.jpegQuantity);
     setSelectValue('wb-mode', config.wbMode);
     setSelectValue('special-effect', config.specialEffect);
+    setSelectValue('stream-frame-size', config.streamFrameSize);
 
     document.getElementById('contrast').value = config.contrast;
     document.getElementById('contrast-value').textContent = config.contrast;
@@ -204,7 +205,7 @@ function fillCameraForm(config) {
     document.getElementById('saturation-value').textContent = config.saturation;
     document.getElementById('brightness').value = config.brightness;
     document.getElementById('brightness-value').textContent = config.brightness;
-    
+
     if (config.streamFps) {
         document.getElementById('stream-fps').value = config.streamFps;
         document.getElementById('stream-fps-value').textContent = config.streamFps;
@@ -431,16 +432,23 @@ async function applyCameraSettings() {
         contrast: parseInt(document.getElementById('contrast').value),
         saturation: parseInt(document.getElementById('saturation').value),
         brightness: parseInt(document.getElementById('brightness').value),
-        streamFps: parseInt(document.getElementById('stream-fps').value)
+        streamFps: parseInt(document.getElementById('stream-fps').value),
+        streamFrameSize: parseInt(document.getElementById('stream-frame-size').value)
     };
 
     try {
-        // 发送所有设置请求
-        const response = await fetch('/api/camera/set-all', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settings)
-        });
+        // 拍照期间后端会返回 409，自动重试避免用户看到失败提示
+        let response = null;
+        for (let attempt = 0; attempt < 5; attempt++) {
+            response = await fetch('/api/camera/set-all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            });
+            if (response.status !== 409) break;
+            // 相机忙，等待 600ms 后重试
+            await new Promise(r => setTimeout(r, 600));
+        }
 
         if (response.ok) {
             const data = await response.json();
@@ -455,8 +463,16 @@ async function applyCameraSettings() {
             } else {
                 showMessage(statusEl, '设置应用失败: ' + (data.error || '未知错误'), 'error');
             }
+        } else if (response.status === 409) {
+            showMessage(statusEl, '相机忙碌，请稍后重试', 'error');
         } else {
-            showMessage(statusEl, '请求失败', 'error');
+            // 相机初始化失败时后端会返回 success=false
+            try {
+                const data = await response.json();
+                showMessage(statusEl, '设置应用失败: ' + (data.error || '相机初始化失败'), 'error');
+            } catch (_) {
+                showMessage(statusEl, '请求失败', 'error');
+            }
         }
     } catch (e) {
         showMessage(statusEl, '错误: ' + e.toString(), 'error');
@@ -486,6 +502,7 @@ async function saveConfig() {
     currentConfig.jpegQuantity = parseInt(document.getElementById('jpeg-quality').value);
     currentConfig.frameSize = parseInt(document.getElementById('frame-size').value);
     currentConfig.streamFps = parseInt(document.getElementById('stream-fps').value);
+    currentConfig.streamFrameSize = parseInt(document.getElementById('stream-frame-size').value);
     currentConfig.wbMode = parseInt(document.getElementById('wb-mode').value);
     currentConfig.specialEffect = parseInt(document.getElementById('special-effect').value);
     currentConfig.contrast = parseInt(document.getElementById('contrast').value);
@@ -539,10 +556,12 @@ async function connectToSTA() {
 
 // ===== 监控流功能 (HTTP 轮询方式) =====
 
-// 获取一帧图像
+// 获取一帧图像，完成后自动调度下一帧（递归 setTimeout）
+// 比 setInterval 更优：避免请求堆积，帧完成后立即发起下一帧请求
 async function fetchFrame() {
     if (!monitorActive) return;
     
+    const fetchStartTime = performance.now();
     try {
         const uniqueId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
         const response = await fetch('/api/camera/stream-frame?t=' + uniqueId, {
@@ -581,11 +600,20 @@ async function fetchFrame() {
             document.getElementById('actual-fps').textContent = fpsCounter.fps + ' fps';
             document.getElementById('frame-count').textContent = frameCount;
             document.getElementById('stream-bytes').textContent = formatBytes(streamTotalBytes);
-            document.getElementById('stream-fps').textContent = 'FPS: ' + (fpsCounter.fps || '--');
+            document.getElementById('stream-fps-display').textContent = 'FPS: ' + (fpsCounter.fps || '--');
         }
     } catch (e) {
         // 帧获取失败可能是临时错误，不立即停止，等下一次重试
         console.warn('Frame fetch failed:', e);
+    } finally {
+        // 当前帧处理完成，根据目标帧率计算下一次请求的延迟
+        // 如果上一帧耗时小于目标间隔，等待剩余时间；否则立即请求下一帧
+        if (monitorActive) {
+            const fetchDuration = performance.now() - fetchStartTime;
+            const targetInterval = currentFrameIntervalMs;
+            const delay = Math.max(0, targetInterval - fetchDuration);
+            streamTimer = setTimeout(fetchFrame, delay);
+        }
     }
 }
 
@@ -636,10 +664,8 @@ async function startMonitor() {
         stats.style.display = 'flex';
         stopBtn.disabled = false;
 
-        // 2. 启动定时轮询获取帧
-        streamTimer = setInterval(fetchFrame, currentFrameIntervalMs);
-        
-        // 立即获取第一帧
+        // 2. 启动递归 setTimeout 获取帧链
+        // fetchFrame 完成后会自动调度下一次请求
         fetchFrame();
         
     } catch (e) {
@@ -668,7 +694,7 @@ async function stopMonitor() {
 
     // 清除帧获取定时器
     if (streamTimer) {
-        clearInterval(streamTimer);
+        clearTimeout(streamTimer);
         streamTimer = null;
     }
 

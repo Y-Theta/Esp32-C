@@ -254,6 +254,7 @@ esp_err_t WebServerService::getConfigHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "jpegQuantity", config.jpegQuantity);
     cJSON_AddNumberToObject(root, "frameSize", config.frameSize);
     cJSON_AddNumberToObject(root, "streamFps", config.streamFps);
+    cJSON_AddNumberToObject(root, "streamFrameSize", config.streamFrameSize);
     cJSON_AddNumberToObject(root, "wbMode", config.wbMode);
     cJSON_AddNumberToObject(root, "contrast", config.contrast);
     cJSON_AddNumberToObject(root, "saturation", config.saturation);
@@ -313,7 +314,13 @@ esp_err_t WebServerService::saveConfigHandler(httpd_req_t* req) {
     item = cJSON_GetObjectItem(root, "streamFps");
     if (item && cJSON_IsNumber(item)) {
         int fps = item->valueint;
-        if (fps >= 15 && fps <= 30) config.streamFps = fps;
+        if (fps >= 15 && fps <= 40) config.streamFps = fps;
+    }
+
+    item = cJSON_GetObjectItem(root, "streamFrameSize");
+    if (item && cJSON_IsNumber(item)) {
+        int fs = item->valueint;
+        if (fs >= 0 && fs <= (int)FRAMESIZE_VGA) config.streamFrameSize = fs;
     }
     
     item = cJSON_GetObjectItem(root, "wbMode");
@@ -364,6 +371,7 @@ esp_err_t WebServerService::apiTakePhotoHandler(httpd_req_t* req) {
     cJSON_AddBoolToObject(root, "success", true);
     cJSON_AddNumberToObject(root, "photoVersion", _photoVersion);
     cJSON_AddStringToObject(root, "photoUrl", "/api/last-photo");
+    cJSON_AddNumberToObject(root, "photoSize", (int)_photoBufferSize);
 
     char* json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
@@ -421,7 +429,6 @@ esp_err_t WebServerService::apiPhotoStatusHandler(httpd_req_t* req) {
     cJSON_AddBoolToObject(root, "isTakingPhoto", _isTakingPhoto);
     cJSON_AddBoolToObject(root, "newPhotoReady", _newPhotoReady);
     cJSON_AddNumberToObject(root, "photoVersion", _photoVersion);
-    cJSON_AddNumberToObject(root, "photoSize", (int)_photoBufferSize);
 
     char* json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
@@ -463,6 +470,13 @@ esp_err_t WebServerService::apiMemoryStatusHandler(httpd_req_t* req) {
 }
 
 esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
+    // 拍照进行中禁止重载相机，避免 deinit 与 TakePhoto 持有的 fb 冲突导致崩溃
+    if (_isTakingPhoto) {
+        httpd_resp_set_status(req, "409 Conflict");
+        httpd_resp_sendstr(req, "{\"success\":false,\"error\":\"Camera busy (taking photo)\"}");
+        return ESP_FAIL;
+    }
+
     cJSON* root;
     esp_err_t err = readPostJson(req, &root);
     if (err != ESP_OK) {
@@ -479,6 +493,7 @@ esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
     cJSON* saturationJson = cJSON_GetObjectItem(root, "saturation");
     cJSON* brightnessJson = cJSON_GetObjectItem(root, "brightness");
     cJSON* streamFpsJson = cJSON_GetObjectItem(root, "streamFps");
+    cJSON* streamFrameSizeJson = cJSON_GetObjectItem(root, "streamFrameSize");
 
     int frameSize = 10;
     int jpegQuality = 1;
@@ -488,6 +503,7 @@ esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
     int saturation = 3;
     int brightness = 4;
     int streamFps = 20;
+    int streamFrameSize = (int)FRAMESIZE_VGA;
 
     if (frameSizeJson && cJSON_IsNumber(frameSizeJson)) frameSize = frameSizeJson->valueint;
     if (qualityJson && cJSON_IsNumber(qualityJson)) jpegQuality = qualityJson->valueint;
@@ -499,7 +515,12 @@ esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
     if (streamFpsJson && cJSON_IsNumber(streamFpsJson)) {
         streamFps = streamFpsJson->valueint;
         if (streamFps < 15) streamFps = 15;
-        if (streamFps > 30) streamFps = 30;
+        if (streamFps > 40) streamFps = 40;
+    }
+    if (streamFrameSizeJson && cJSON_IsNumber(streamFrameSizeJson)) {
+        streamFrameSize = streamFrameSizeJson->valueint;
+        if (streamFrameSize < 0) streamFrameSize = 0;
+        if (streamFrameSize > (int)FRAMESIZE_VGA) streamFrameSize = (int)FRAMESIZE_VGA;
     }
 
     cJSON_Delete(root);
@@ -515,6 +536,7 @@ esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
     config.saturation = saturation;
     config.brightness = brightness;
     config.streamFps = streamFps;
+    config.streamFrameSize = streamFrameSize;
     storage.setConfig(config);
     storage.save();
 
@@ -522,6 +544,12 @@ esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
     if (!_streamingActive) {
         UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
         camera.SetAllCameraConfig(frameSize, jpegQuality, wbMode, specialEffect, contrast, saturation, brightness);
+        // 检查相机是否成功初始化，避免后续 handler 访问未初始化相机导致崩溃
+        if (!camera.IsInitialized()) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_sendstr(req, "{\"success\":false,\"error\":\"Camera init failed (memory?)\"}");
+            return ESP_FAIL;
+        }
     }
 
     httpd_resp_set_type(req, "application/json");
@@ -539,6 +567,7 @@ esp_err_t WebServerService::apiCameraStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "frameSize", config.frameSize);
     cJSON_AddNumberToObject(root, "jpegQuantity", config.jpegQuantity);
     cJSON_AddNumberToObject(root, "streamFps", config.streamFps);
+    cJSON_AddNumberToObject(root, "streamFrameSize", config.streamFrameSize);
     cJSON_AddNumberToObject(root, "wbMode", config.wbMode);
     cJSON_AddNumberToObject(root, "contrast", config.contrast);
     cJSON_AddNumberToObject(root, "saturation", config.saturation);
@@ -586,7 +615,7 @@ esp_err_t WebServerService::apiStreamStartHandler(httpd_req_t* req) {
     
     cJSON* root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "success", true);
-    cJSON_AddStringToObject(root, "frameSize", "VGA");
+    cJSON_AddNumberToObject(root, "streamFrameSize", config.streamFrameSize);
     cJSON_AddNumberToObject(root, "targetFps", config.streamFps);
     cJSON_AddNumberToObject(root, "frameIntervalMs", 1000 / config.streamFps);
 
@@ -628,7 +657,12 @@ esp_err_t WebServerService::apiStreamFrameHandler(httpd_req_t* req) {
     }
 
     UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
-    
+    if (!camera.IsInitialized()) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_sendstr(req, "{\"error\":\"Camera not initialized\"}");
+        return ESP_FAIL;
+    }
+
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) {
         httpd_resp_set_status(req, "503 Service Unavailable");
@@ -643,25 +677,34 @@ esp_err_t WebServerService::apiStreamFrameHandler(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
+    // 设置响应头
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
     httpd_resp_set_hdr(req, "Pragma", "no-cache");
-    httpd_resp_send(req, (const char*)fb->buf, fb->len);
+    httpd_resp_set_hdr(req, "Connection", "close");
+
+    // 设置 Content-Length 后用 httpd_resp_send 一次发送
+    // httpd 内部会使用 send() 直接发送，避免分段 chunk 编码开销
+    char content_len[16];
+    snprintf(content_len, sizeof(content_len), "%d", (int)fb->len);
+    httpd_resp_set_hdr(req, "Content-Length", content_len);
+
+    esp_err_t ret = httpd_resp_send(req, (const char*)fb->buf, fb->len);
     
     esp_camera_fb_return(fb);
-    return ESP_OK;
+    return ret;
 }
 
 // 拍照完成回调，由相机调用
 void WebServerService::notifyPhotoCaptured(camera_fb_t* fb) {
     if (!fb) return;
-    
+
     // 释放旧缓冲区
     if (_photoBuffer) {
         free(_photoBuffer);
         _photoBuffer = nullptr;
     }
-    
+
     // 复制照片到全局缓冲区
     _photoBuffer = (uint8_t*)malloc(fb->len);
     if (_photoBuffer) {
@@ -671,8 +714,19 @@ void WebServerService::notifyPhotoCaptured(camera_fb_t* fb) {
         _newPhotoReady = true;
         ESP_LOGI(TAG, "New photo buffered, version: %u, size: %zu bytes", _photoVersion, fb->len);
     }
-    
+
     _isTakingPhoto = false;
+}
+
+// 释放照片缓冲区（在相机重新初始化前调用）
+void WebServerService::releasePhotoBuffer() {
+    if (_photoBuffer && _photoBufferSize > 0) {
+        ESP_LOGI(TAG, "Releasing photo buffer (%zu bytes) before camera reload", _photoBufferSize);
+        free(_photoBuffer);
+        _photoBuffer = nullptr;
+        _photoBufferSize = 0;
+        _newPhotoReady = false;
+    }
 }
 
 void WebServerService::start() {

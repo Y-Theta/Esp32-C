@@ -16,7 +16,14 @@ void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t*)> processPhoto) {
         cam_init();
     }
 
+    if (!_initialized) {
+        ESP_LOGE(TAG, "TakePhoto aborted: camera not initialized");
+        return;
+    }
+
     camera_fb_t* fb = nullptr;
+
+    _takePhotoActive = true;
 
     if (OnTakePhotoStart != nullptr) {
         OnTakePhotoStart();
@@ -51,14 +58,15 @@ void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t*)> processPhoto) {
     if (!fb) {
         ESP_LOGI(TAG, "Failed to get camera frame");
         SetLed(false);
+        _takePhotoActive = false;
         if (OnTakePhotoEnd != nullptr) {
             OnTakePhotoEnd();
         }
         return;
     }
-    
+
     ESP_LOGI(TAG, "captured height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
-    
+
     if (processPhoto) {
         try {
             processPhoto(fb);
@@ -66,14 +74,16 @@ void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t*)> processPhoto) {
             ESP_LOGI(TAG, "Exception occurred during photo processing");
         }
     }
-    
+
     esp_camera_fb_return(fb);
     fb = nullptr;
-    
+
+    _takePhotoActive = false;
+
     if (OnTakePhotoEnd != nullptr) {
         OnTakePhotoEnd();
     }
-    
+
     SetLed(false);
 }
 
@@ -107,14 +117,26 @@ void UnitCamS3_5MP::cam_init() {
     cameraConfig.pin_sccb_scl = CAMERA_PIN_SIOC;
     cameraConfig.pin_pwdn = CAMERA_PIN_PWDN;
     cameraConfig.pin_reset = CAMERA_PIN_RESET;
-    cameraConfig.xclk_freq_hz = XCLK_FREQ_HZ;
+    // XCLK 动态调整：推流模式(VGA)用 24MHz 最大化帧率；拍照模式(可能 5MP)用 20MHz 保证 DMA 不溢出
+    // 5MP(2592x1944) 在 24MHz 下数据率超过 DMA->PSRAM 带宽会导致 EV-EOF-OVF
+    cameraConfig.xclk_freq_hz = _streamingMode ? XCLK_FREQ_HZ : 20000000;
     cameraConfig.pixel_format = PIXFORMAT_JPEG;
-    cameraConfig.frame_size = (framesize_t)config.frameSize;
-    cameraConfig.jpeg_quality = 8;
+    // 推流模式使用独立的 streamFrameSize（最高 VGA），拍照模式使用 frameSize（最高 5MP）
+    // 这样切换推流不影响拍照分辨率配置，停止推流后拍照分辨率自动恢复
+    int activeFrameSize = _streamingMode ? config.streamFrameSize : config.frameSize;
+    if (_streamingMode && (activeFrameSize < 0 || activeFrameSize > (int)FRAMESIZE_VGA)) {
+        activeFrameSize = (int)FRAMESIZE_VGA;
+    }
+    cameraConfig.frame_size = (framesize_t)activeFrameSize;
+    // 拍照高质量；推流模式降低质量加快编码并减小数据量
+    cameraConfig.jpeg_quality = _streamingMode ? 12 : 8;
 
-    // 监控模式使用三缓冲 + LATEST 抓取以保证更高帧率；普通拍照使用单缓冲节省内存
+    // 监控模式使用四缓冲 + LATEST 抓取最大化吞吐量
+    // - 相机 DMA 一直往缓冲区写，总能找到空闲 buffer
+    // - LATEST 模式总是返回最新帧，旧帧被丢弃，避免取到陈旧帧
+    // - 拍照用单缓冲节省内存
     if (_streamingMode) {
-        cameraConfig.fb_count = 3;
+        cameraConfig.fb_count = 4;
         cameraConfig.grab_mode = CAMERA_GRAB_LATEST;
     } else {
         cameraConfig.fb_count = 1;
@@ -123,9 +145,22 @@ void UnitCamS3_5MP::cam_init() {
     cameraConfig.fb_location = CAMERA_FB_IN_PSRAM;
     cameraConfig.sccb_i2c_port = 1;
 
-    esp_err_t err = esp_camera_init(&cameraConfig);
+    // 5MP 帧缓冲较大（4MB），PSRAM 碎片化时可能首次分配失败，重试一次
+    esp_err_t err = ESP_FAIL;
+    for (int attempt = 1; attempt <= 2; attempt++) {
+        err = esp_camera_init(&cameraConfig);
+        if (err == ESP_OK) {
+            break;
+        }
+        ESP_LOGE(TAG, "camera init attempt %d failed: %s", attempt, esp_err_to_name(err));
+        if (attempt < 2) {
+            // 释放可能残留的资源并延迟后重试
+            esp_camera_deinit();
+            vTaskDelay(200 / portTICK_PERIOD_MS);
+        }
+    }
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "camera init failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "camera init failed after retries: %s", esp_err_to_name(err));
         _initialized = false;
         return;
     }
@@ -136,8 +171,8 @@ void UnitCamS3_5MP::cam_init() {
     if (s) {
         ESP_LOGI(TAG, "Setting camera parameters...");
 
-        // 0. 设置 Frame Size (关键修复！)
-        s->set_framesize(s, (framesize_t)config.frameSize);
+        // 0. 设置 Frame Size - 推流模式用 streamFrameSize，拍照模式用 frameSize
+        s->set_framesize(s, (framesize_t)activeFrameSize);
 
         // 1. 设置 JPEG 质量 (0-2 for mega_ccm: 0=高, 1=默认, 2=低)
         int jpegQuality = (config.jpegQuantity <= 2) ? config.jpegQuantity : 1;
@@ -158,8 +193,26 @@ void UnitCamS3_5MP::cam_init() {
         // 6. 亮度 (0-8, 4为默认)
         s->set_brightness(s, config.brightness);
 
-        ESP_LOGI(TAG, "Camera parameters set - frameSize=%d, jpegQuality=%d, wb=%d, contrast=%d, saturation=%d, brightness=%d, effect=%d",
-                 config.frameSize, jpegQuality, config.wbMode, config.contrast, config.saturation, config.brightness, config.specialEffect);
+        ESP_LOGI(TAG, "Camera parameters set - activeFrameSize=%d(%s mode), jpegQuality=%d, wb=%d, contrast=%d, saturation=%d, brightness=%d, effect=%d",
+                 activeFrameSize, _streamingMode ? "stream" : "photo", jpegQuality, config.wbMode, config.contrast, config.saturation, config.brightness, config.specialEffect);
+
+        // 推流模式：关闭耗时的图像处理，最大化帧率
+        if (_streamingMode) {
+            // 关闭自动增益控制（AGC）—— 加快曝光决策
+            if (s->set_gain_ctrl) s->set_gain_ctrl(s, 0);
+            // 关闭自动曝光控制（AEC）—— 加快曝光决策
+            if (s->set_exposure_ctrl) s->set_exposure_ctrl(s, 0);
+            // 关闭自动白平衡（AWB）—— 减少处理开销
+            if (s->set_whitebal) s->set_whitebal(s, 0);
+            // 关闭黑电平校准
+            if (s->set_aec2) s->set_aec2(s, 0);
+            // 关闭暗光模式（夜间模式会大幅降低帧率）
+            if (s->set_denoise) s->set_denoise(s, 0);
+            // 关闭镜头矫正
+            // 关闭增益 ceilings 限制
+            if (s->set_gainceiling) s->set_gainceiling(s, GAINCEILING_8X);
+            ESP_LOGI(TAG, "Streaming mode: disabled AGC/AEC/AWB for max framerate");
+        }
     }
     
     vTaskDelay(2000 / portTICK_PERIOD_MS);
@@ -196,9 +249,31 @@ void UnitCamS3_5MP::btn_init() {
 
 void UnitCamS3_5MP::ReloadConfig() {
     ESP_LOGI(TAG, "Reloading camera config...");
+
+    // 等待拍照完成，避免 deinit 时 TakePhoto 还持有 fb 导致内存访问非法
+    if (_takePhotoActive) {
+        ESP_LOGW(TAG, "ReloadConfig: waiting for in-progress photo to finish...");
+        int waitMs = 0;
+        while (_takePhotoActive && waitMs < 3000) {
+            vTaskDelay(10 / portTICK_PERIOD_MS);
+            waitMs += 10;
+        }
+        if (_takePhotoActive) {
+            ESP_LOGE(TAG, "ReloadConfig: photo still in progress after 3s, aborting reload");
+            return;
+        }
+    }
+
+    // 通知上层释放占用的缓冲区（如 _photoBuffer），避免 PSRAM 不足导致帧缓冲分配失败
+    if (onBeforeReload) {
+        onBeforeReload();
+    }
+
     if (_initialized) {
         esp_camera_deinit();
         _initialized = false;
+        // 给 DMA 一点时间完全停止，避免立刻重新初始化时资源未释放
+        vTaskDelay(50 / portTICK_PERIOD_MS);
     }
     cam_init();
 }
@@ -329,18 +404,18 @@ void UnitCamS3_5MP::ApplyCameraConfig() {
 }
 
 void UnitCamS3_5MP::StartStreamingMode() {
-    ESP_LOGI(TAG, "Entering streaming mode (VGA, fb_count=3, grab_mode=LATEST)");
+    ESP_LOGI(TAG, "Entering streaming mode (streamFrameSize, fb_count=4, grab_mode=LATEST)");
     if (_streamingMode) {
         ESP_LOGI(TAG, "Already in streaming mode");
         return;
     }
 
-    // 强制使用 VGA 分辨率以保证 15fps 帧率
+    // 推流使用独立的 streamFrameSize 配置（最高 VGA），不影响拍照分辨率 frameSize
+    // 实际分辨率切换在 cam_init 中根据 _streamingMode 选择
     StorageService& storage = StorageService::getInstance();
     CONFIG::SystemConfig_t config = storage.getConfig();
-    if (config.frameSize != (int)FRAMESIZE_VGA) {
-        ESP_LOGI(TAG, "Switching frame size from %d to VGA(%d) for streaming", config.frameSize, (int)FRAMESIZE_VGA);
-        config.frameSize = (int)FRAMESIZE_VGA;
+    if (config.streamFrameSize < 0 || config.streamFrameSize > (int)FRAMESIZE_VGA) {
+        config.streamFrameSize = (int)FRAMESIZE_VGA;
         storage.setConfig(config);
     }
 
@@ -396,6 +471,11 @@ void UnitCamS3_5MP::StartForSetting() {
     };
     webServer.onConnectToSTRequested = []() {
         ESP_LOGI(TAG, "Connect to STA requested");
+    };
+
+    // 相机重新初始化前释放照片缓冲区，避免 PSRAM 不足导致 5MP 帧缓冲分配失败
+    onBeforeReload = []() {
+        WebServerService::releasePhotoBuffer();
     };
 
     // 初始化 WiFi - AP 模式

@@ -37,7 +37,8 @@ struct SystemConfig_t {
 
     int jpegQuantity = 12;
     int frameSize = (int)FRAMESIZE_VGA;
-    int streamFps = 20; // 推流帧率 15-30fps
+    int streamFps = 25; // 推流帧率 15-40fps
+    int streamFrameSize = (int)FRAMESIZE_VGA; // 推流分辨率，最高 VGA
 
     // 相机图像参数
     int wbMode = 0;       // 白平衡: Auto=0, sunny=1, office=2, cloudy=3, home=4

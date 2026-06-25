@@ -23,6 +23,9 @@ public:
     // 拍照完成回调，由相机模块调用
     static void notifyPhotoCaptured(camera_fb_t* fb);
 
+    // 释放照片缓冲区（在相机重新初始化前调用，避免 PSRAM 不足）
+    static void releasePhotoBuffer();
+
     // 回调函数
     std::function<void()> onTakePhotoRequested;
     std::function<void()> onConnectToSTRequested;
