@@ -36,21 +36,16 @@ let isTakingPhoto = false;
 // 内存状态刷新定时器
 let memoryRefreshTimer = null;
 
-// ===== 监控流相关 (HTTP 并发预取 + 前端缓冲队列) =====
-// 生产者(requestFrame)维护 N 个并发请求，请求完成立即入队并补充新请求
-// 消费者(displayLoop)按目标帧率从队列取帧显示
-// 这样网络延迟被并发请求隐藏，帧率上限 ≈ min(相机实际帧率, 目标帧率)
-let monitorActive = false;         // 监控是否激活
-let displayTimer = null;           // 显示循环定时器（消费者）
-let frameQueue = [];               // 已接收待显示的帧队列（缓冲区）
-let pendingRequests = 0;           // 正在进行中的请求数（生产者）
-let frameCount = 0;                // 已接收帧数
-let streamTotalBytes = 0;          // 累计接收字节数
+// ===== 监控流相关 (WebSocket 推流) =====
+// 后端建立 WS 后直接推送二进制 JPEG 帧；前端收到即渲染，无队列无轮询
+let monitorActive = false;
+let streamWs = null;               // WebSocket 实例
+let frameCount = 0;
+let streamTotalBytes = 0;
 let fpsCounter = { frames: 0, lastTs: 0, fps: 0 };
-let currentBlobUrl = null;         // 当前 img 的 blob URL，用于释放
-let currentFrameIntervalMs = 50;   // 帧间隔，由配置决定
-const MAX_PENDING_REQUESTS = 2;    // 最大并发请求数（流水线深度，隐藏网络延迟）
-const MAX_QUEUE_SIZE = 3;          // 帧队列最大长度，避免内存堆积
+let currentBlobUrl = null;
+let currentFrameIntervalMs = 50;   // 目标帧间隔（由配置决定）
+let lastRenderTs = 0;              // 上次渲染时间戳（按目标帧率节流）
 
 // 更新内存状态显示
 async function updateMemoryStatus() {
@@ -561,101 +556,39 @@ async function connectToSTA() {
     }
 }
 
-// ===== 监控流功能 (HTTP 并发预取 + 前端缓冲队列) =====
+// ===== 监控流功能 (WebSocket) =====
+// WS 二进制帧直接承载 JPEG 原始数据，收到即渲染（按目标帧率节流），无队列无轮询
 
-// 生产者：发起一个帧请求，完成后自动补充新请求（形成流水线）
-// 多个 requestFrame 可并发执行，由 MAX_PENDING_REQUESTS 控制并发上限
-async function requestFrame() {
-    if (!monitorActive) return;
-    if (pendingRequests >= MAX_PENDING_REQUESTS) return;
-    // 队列已满时不再请求，由 displayLoop 消费后触发补充
-    if (frameQueue.length >= MAX_QUEUE_SIZE) return;
-
-    pendingRequests++;
-    try {
-        const uniqueId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-        const response = await fetch('/api/camera/stream-frame?t=' + uniqueId, {
-            cache: 'no-store',
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
-        }
-
-        const blob = await response.blob();
-        streamTotalBytes += blob.size;
-        frameCount++;
-
-        // 读取后端附加的帧时间戳（毫秒），用于前端排序消除并发乱序
-        const tsStr = response.headers.get('X-Frame-Timestamp');
-        const timestamp = tsStr ? parseInt(tsStr, 10) : Date.now();
-
-        // 入队（仅当还在监控且队列未满时）
-        if (monitorActive && frameQueue.length < MAX_QUEUE_SIZE) {
-            frameQueue.push({ blob, timestamp });
-
-            // 更新 FPS 统计（基于接收到的帧，反映相机+网络实际能力）
-            const now = performance.now();
-            fpsCounter.frames++;
-            const elapsed = now - fpsCounter.lastTs;
-            if (elapsed >= 1000) {
-                fpsCounter.fps = (fpsCounter.frames * 1000 / elapsed).toFixed(1);
-                fpsCounter.frames = 0;
-                fpsCounter.lastTs = now;
-                document.getElementById('actual-fps').textContent = fpsCounter.fps + ' fps';
-                document.getElementById('frame-count').textContent = frameCount;
-                document.getElementById('stream-bytes').textContent = formatBytes(streamTotalBytes);
-                document.getElementById('stream-fps-display').textContent = 'FPS: ' + (fpsCounter.fps || '--');
-            }
-        }
-    } catch (e) {
-        // 帧获取失败可能是临时错误，不停止，由流水线自动重试
-        console.warn('Frame fetch failed:', e);
-    } finally {
-        pendingRequests--;
-        // 请求完成后，如果还在监控，立即尝试补充（维持流水线深度）
-        if (monitorActive) {
-            requestFrame();
-        }
+function renderJpegFrame(blob, sizeBytes) {
+    // FPS 统计
+    const now = performance.now();
+    frameCount++;
+    fpsCounter.frames++;
+    streamTotalBytes += sizeBytes;
+    if (now - fpsCounter.lastTs >= 1000 && fpsCounter.frames > 0) {
+        fpsCounter.fps = (fpsCounter.frames * 1000 / (now - fpsCounter.lastTs)).toFixed(1);
+        fpsCounter.frames = 0;
+        fpsCounter.lastTs = now;
+        document.getElementById('actual-fps').textContent = fpsCounter.fps + ' fps';
+        document.getElementById('frame-count').textContent = frameCount;
+        document.getElementById('stream-bytes').textContent = formatBytes(streamTotalBytes);
+        document.getElementById('stream-fps-display').textContent = 'FPS: ' + (fpsCounter.fps || '--');
     }
+
+    // 按目标帧间隔节流：防止 WS 推送速率快于目标显示帧率时过度绘制
+    if (now - lastRenderTs < currentFrameIntervalMs) return;
+    lastRenderTs = now;
+
+    const url = URL.createObjectURL(blob);
+    const img = document.getElementById('stream-image');
+    if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+    currentBlobUrl = url;
+    img.src = url;
+
+    const tsEl = document.getElementById('stream-timestamp');
+    if (tsEl) tsEl.textContent = 'TS: ' + Date.now() + ' ms';
 }
 
-// 消费者：按目标帧率从队列取帧显示
-// 队列空时保持上一帧，队列有积压时按固定节奏消费
-function displayLoop() {
-    if (!monitorActive) return;
-
-    if (frameQueue.length > 0) {
-        // 并发请求可能导致帧乱序到达，按时间戳升序排序后取最早的一帧展示
-        frameQueue.sort((a, b) => a.timestamp - b.timestamp);
-        const item = frameQueue.shift();
-        const url = URL.createObjectURL(item.blob);
-        const img = document.getElementById('stream-image');
-        if (currentBlobUrl) {
-            URL.revokeObjectURL(currentBlobUrl);
-        }
-        currentBlobUrl = url;
-        img.src = url;
-
-        // 更新时间戳显示
-        const tsEl = document.getElementById('stream-timestamp');
-        if (tsEl) tsEl.textContent = 'TS: ' + item.timestamp + ' ms';
-    }
-    // else: 队列空，保持上一帧显示（避免闪烁）
-
-    // 队列有空间，触发生产者补充（维持流水线）
-    if (frameQueue.length < MAX_QUEUE_SIZE && pendingRequests < MAX_PENDING_REQUESTS) {
-        requestFrame();
-    }
-
-    displayTimer = setTimeout(displayLoop, currentFrameIntervalMs);
-}
-
-// 启动监控：HTTP轮询方式，不使用WebSocket
 async function startMonitor() {
     if (monitorActive) {
         console.log('Monitor already active');
@@ -675,15 +608,14 @@ async function startMonitor() {
     statusDot.className = 'status-dot busy';
     statusText.textContent = '正在启动相机...';
 
-    // 重置统计和缓冲队列
+    // 重置统计
     frameCount = 0;
     streamTotalBytes = 0;
-    frameQueue = [];
-    pendingRequests = 0;
+    lastRenderTs = 0;
     fpsCounter = { frames: 0, lastTs: performance.now(), fps: 0 };
 
     try {
-        // 1. 通知后端启动推流模式
+        // 1. 通知后端启动推流模式（开启相机流 + 后台采集线程）
         const resp = await fetch('/api/camera/stream-start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
@@ -693,24 +625,51 @@ async function startMonitor() {
         }
         const data = await resp.json();
         console.log('Stream start:', data);
-
-        // 根据配置设置帧间隔
         currentFrameIntervalMs = data.frameIntervalMs || 50;
 
-        statusText.textContent = '监控中';
-        statusDot.className = 'status-dot';
-        placeholder.style.display = 'none';
-        wrapper.style.display = 'block';
-        stats.style.display = 'flex';
-        stopBtn.disabled = false;
+        // 2. 建立 WebSocket（根据当前页面协议选择 ws/wss）
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = proto + '//' + location.host + '/ws/camera/stream';
+        const ws = new WebSocket(wsUrl);
+        streamWs = ws;
+        ws.binaryType = 'blob';
 
-        // 2. 启动显示循环（消费者，按目标帧率取帧显示）
-        displayLoop();
-        // 3. 启动 N 个并发请求填满流水线（生产者，隐藏网络延迟）
-        for (let i = 0; i < MAX_PENDING_REQUESTS; i++) {
-            requestFrame();
-        }
-        
+        ws.onopen = () => {
+            console.log('WS opened:', wsUrl);
+            // 发送 "start" 触发后端为该连接创建发送任务
+            ws.send('start');
+
+            statusText.textContent = '监控中';
+            statusDot.className = 'status-dot';
+            placeholder.style.display = 'none';
+            wrapper.style.display = 'block';
+            stats.style.display = 'flex';
+            stopBtn.disabled = false;
+        };
+
+        ws.onmessage = (evt) => {
+            if (!monitorActive) return;
+            if (evt.data instanceof Blob) {
+                renderJpegFrame(evt.data, evt.data.size);
+            }
+        };
+
+        ws.onerror = (e) => {
+            console.error('WS error:', e);
+        };
+
+        ws.onclose = () => {
+            console.log('WS closed');
+            streamWs = null;
+            if (monitorActive) {
+                // 非用户主动关闭：异常断开
+                statusDot.className = 'status-dot offline';
+                statusText.textContent = '连接断开';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                monitorActive = false;
+            }
+        };
     } catch (e) {
         console.error('Start monitor failed:', e);
         statusDot.className = 'status-dot offline';
@@ -720,11 +679,8 @@ async function startMonitor() {
     }
 }
 
-// 停止监控：清除定时器，通知后端停止
 async function stopMonitor() {
-    if (!monitorActive) {
-        return;
-    }
+    if (!monitorActive) return;
     monitorActive = false;
 
     const statusDot = document.getElementById('monitor-status-dot');
@@ -735,16 +691,13 @@ async function stopMonitor() {
     const wrapper = document.getElementById('stream-wrapper');
     const stats = document.getElementById('stream-stats');
 
-    // 清除显示循环定时器
-    if (displayTimer) {
-        clearTimeout(displayTimer);
-        displayTimer = null;
+    // 关闭 WebSocket
+    if (streamWs) {
+        try { streamWs.close(); } catch (e) {}
+        streamWs = null;
     }
 
-    // 清空帧队列（pending 请求会因 monitorActive=false 自然停止入队）
-    frameQueue = [];
-
-    // 释放当前图像URL
+    // 释放当前图像 URL
     if (currentBlobUrl) {
         URL.revokeObjectURL(currentBlobUrl);
         currentBlobUrl = null;
@@ -758,11 +711,10 @@ async function stopMonitor() {
     placeholder.style.display = 'flex';
     stats.style.display = 'none';
 
-    // 重置时间戳显示
     const tsEl = document.getElementById('stream-timestamp');
     if (tsEl) tsEl.textContent = 'TS: --';
 
-    // 通知后端停止推流模式
+    // 通知后端停止推流
     try {
         await fetch('/api/camera/stream-stop', {
             method: 'POST',

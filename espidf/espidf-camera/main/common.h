@@ -39,6 +39,7 @@ struct SystemConfig_t {
     int frameSize = (int)FRAMESIZE_VGA;
     int streamFps = 25; // 推流帧率 15-40fps
     int streamFrameSize = (int)FRAMESIZE_VGA; // 推流分辨率，最高 VGA
+    int streamFbCount = 2; // 每次响应合并发送的帧数（fb_count），1-4
 
     // 相机图像参数
     int wbMode = 0;       // 白平衡: Auto=0, sunny=1, office=2, cloudy=3, home=4

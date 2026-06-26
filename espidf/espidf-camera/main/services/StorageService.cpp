@@ -130,6 +130,12 @@ void StorageService::load() {
         if (fs >= 0 && fs <= (int)FRAMESIZE_VGA) _config.streamFrameSize = fs;
     }
 
+    item = cJSON_GetObjectItem(doc, "streamFbCount");
+    if (item && cJSON_IsNumber(item)) {
+        int n = item->valueint;
+        if (n >= 1 && n <= 4) _config.streamFbCount = n;
+    }
+
     item = cJSON_GetObjectItem(doc, "wbMode");
     if (item && cJSON_IsNumber(item)) _config.wbMode = item->valueint;
 
@@ -175,6 +181,7 @@ void StorageService::save() {
     cJSON_AddNumberToObject(doc, "frameSize", _config.frameSize);
     cJSON_AddNumberToObject(doc, "streamFps", _config.streamFps);
     cJSON_AddNumberToObject(doc, "streamFrameSize", _config.streamFrameSize);
+    cJSON_AddNumberToObject(doc, "streamFbCount", _config.streamFbCount);
 
     cJSON_AddNumberToObject(doc, "wbMode", _config.wbMode);
     cJSON_AddNumberToObject(doc, "contrast", _config.contrast);

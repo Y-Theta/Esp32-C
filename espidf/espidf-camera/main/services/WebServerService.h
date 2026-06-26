@@ -49,7 +49,7 @@ public:
     static esp_err_t apiCameraStatusHandler(httpd_req_t* req);
     static esp_err_t apiStreamStartHandler(httpd_req_t* req);
     static esp_err_t apiStreamStopHandler(httpd_req_t* req);
-    static esp_err_t apiStreamFrameHandler(httpd_req_t* req);
+    static esp_err_t apiStreamWsHandler(httpd_req_t* req);
 
     // Helper to read file from SPIFFS
     static esp_err_t serveFile(httpd_req_t* req, const char* path, const char* contentType);

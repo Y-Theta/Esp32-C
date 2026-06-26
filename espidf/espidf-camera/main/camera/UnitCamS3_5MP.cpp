@@ -136,7 +136,7 @@ void UnitCamS3_5MP::cam_init() {
     // - LATEST 模式总是返回最新帧，旧帧被丢弃，避免取到陈旧帧
     // - 拍照用单缓冲节省内存
     if (_streamingMode) {
-        cameraConfig.fb_count = 4;
+        cameraConfig.fb_count = 2;
         cameraConfig.grab_mode = CAMERA_GRAB_LATEST;
     } else {
         cameraConfig.fb_count = 1;

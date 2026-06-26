@@ -9,6 +9,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
 
 static const char* TAG = "WebServerService";
 
@@ -28,6 +32,26 @@ static const uint64_t PHOTO_BUFFER_TIMEOUT_MS = 30 * 1000;
 
 // 推流状态
 static bool _streamingActive = false;
+
+// ===== 推流后台采集：独立 FreeRTOS 任务持续抓帧到环形队列 =====
+// 队列大小固定 8，满时丢最旧帧，保证 HTTP 响应始终拿到最新帧；
+// 后台任务仅做 esp_camera_fb_get -> 拷贝到 PSRAM -> esp_camera_fb_return，极轻量
+static const int STREAM_RING_SIZE = 8;
+struct StreamFrame {
+    uint8_t* jpeg;
+    size_t   len;
+    uint64_t ts;
+};
+static StreamFrame  s_streamRing[STREAM_RING_SIZE] = {};
+static int          s_streamRingHead = 0;      // 下一写入位置
+static int          s_streamRingCount = 0;     // 当前有效帧数
+static TaskHandle_t s_streamCaptureTask = nullptr;
+static volatile bool s_streamCaptureRun = false;
+static portMUX_TYPE s_streamRingMux = portMUX_INITIALIZER_UNLOCKED;
+
+// 前向声明
+static void startStreamCaptureTask();
+static void stopStreamCaptureTask();
 
 // ===== 全局静态 URI handler 定义 =====
 // 必须放在文件作用域，生命周期永久有效
@@ -137,11 +161,15 @@ static const httpd_uri_t uri_stream_stop = {
     .user_ctx = nullptr
 };
 
-static const httpd_uri_t uri_stream_frame = {
-    .uri = "/api/camera/stream-frame",
+// WebSocket 推流端点：method 必须为 HTTP_GET，is_websocket = true
+static const httpd_uri_t uri_stream_ws = {
+    .uri = "/ws/camera/stream",
     .method = HTTP_GET,
-    .handler = WebServerService::apiStreamFrameHandler,
-    .user_ctx = nullptr
+    .handler = WebServerService::apiStreamWsHandler,
+    .user_ctx = nullptr,
+    .is_websocket = true,
+    .handle_ws_control_frames = false,
+    .supported_subprotocol = nullptr
 };
 
 // 辅助函数：获取当前时间（毫秒）
@@ -255,6 +283,7 @@ esp_err_t WebServerService::getConfigHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "frameSize", config.frameSize);
     cJSON_AddNumberToObject(root, "streamFps", config.streamFps);
     cJSON_AddNumberToObject(root, "streamFrameSize", config.streamFrameSize);
+    cJSON_AddNumberToObject(root, "streamFbCount", config.streamFbCount);
     cJSON_AddNumberToObject(root, "wbMode", config.wbMode);
     cJSON_AddNumberToObject(root, "contrast", config.contrast);
     cJSON_AddNumberToObject(root, "saturation", config.saturation);
@@ -321,6 +350,12 @@ esp_err_t WebServerService::saveConfigHandler(httpd_req_t* req) {
     if (item && cJSON_IsNumber(item)) {
         int fs = item->valueint;
         if (fs >= 0 && fs <= (int)FRAMESIZE_VGA) config.streamFrameSize = fs;
+    }
+
+    item = cJSON_GetObjectItem(root, "streamFbCount");
+    if (item && cJSON_IsNumber(item)) {
+        int n = item->valueint;
+        if (n >= 1 && n <= 4) config.streamFbCount = n;
     }
     
     item = cJSON_GetObjectItem(root, "wbMode");
@@ -494,6 +529,7 @@ esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
     cJSON* brightnessJson = cJSON_GetObjectItem(root, "brightness");
     cJSON* streamFpsJson = cJSON_GetObjectItem(root, "streamFps");
     cJSON* streamFrameSizeJson = cJSON_GetObjectItem(root, "streamFrameSize");
+    cJSON* streamFbCountJson = cJSON_GetObjectItem(root, "streamFbCount");
 
     int frameSize = 10;
     int jpegQuality = 1;
@@ -504,6 +540,7 @@ esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
     int brightness = 4;
     int streamFps = 20;
     int streamFrameSize = (int)FRAMESIZE_VGA;
+    int streamFbCount = 2;
 
     if (frameSizeJson && cJSON_IsNumber(frameSizeJson)) frameSize = frameSizeJson->valueint;
     if (qualityJson && cJSON_IsNumber(qualityJson)) jpegQuality = qualityJson->valueint;
@@ -522,6 +559,11 @@ esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
         if (streamFrameSize < 0) streamFrameSize = 0;
         if (streamFrameSize > (int)FRAMESIZE_VGA) streamFrameSize = (int)FRAMESIZE_VGA;
     }
+    if (streamFbCountJson && cJSON_IsNumber(streamFbCountJson)) {
+        streamFbCount = streamFbCountJson->valueint;
+        if (streamFbCount < 1) streamFbCount = 1;
+        if (streamFbCount > 4) streamFbCount = 4;
+    }
 
     cJSON_Delete(root);
 
@@ -537,6 +579,7 @@ esp_err_t WebServerService::apiSetAllCameraConfigHandler(httpd_req_t* req) {
     config.brightness = brightness;
     config.streamFps = streamFps;
     config.streamFrameSize = streamFrameSize;
+    config.streamFbCount = streamFbCount;
     storage.setConfig(config);
     storage.save();
 
@@ -568,6 +611,7 @@ esp_err_t WebServerService::apiCameraStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "jpegQuantity", config.jpegQuantity);
     cJSON_AddNumberToObject(root, "streamFps", config.streamFps);
     cJSON_AddNumberToObject(root, "streamFrameSize", config.streamFrameSize);
+    cJSON_AddNumberToObject(root, "streamFbCount", config.streamFbCount);
     cJSON_AddNumberToObject(root, "wbMode", config.wbMode);
     cJSON_AddNumberToObject(root, "contrast", config.contrast);
     cJSON_AddNumberToObject(root, "saturation", config.saturation);
@@ -609,6 +653,7 @@ esp_err_t WebServerService::apiStreamStartHandler(httpd_req_t* req) {
     camera.StartStreamingMode();
     
     _streamingActive = true;
+    startStreamCaptureTask();  // 相机模式切换完成后启动后台采集线程
 
     StorageService& storage = StorageService::getInstance();
     const CONFIG::SystemConfig_t& config = storage.getConfig();
@@ -616,6 +661,7 @@ esp_err_t WebServerService::apiStreamStartHandler(httpd_req_t* req) {
     cJSON* root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "success", true);
     cJSON_AddNumberToObject(root, "streamFrameSize", config.streamFrameSize);
+    cJSON_AddNumberToObject(root, "streamFbCount", config.streamFbCount);
     cJSON_AddNumberToObject(root, "targetFps", config.streamFps);
     cJSON_AddNumberToObject(root, "frameIntervalMs", 1000 / config.streamFps);
 
@@ -639,67 +685,253 @@ esp_err_t WebServerService::apiStreamStopHandler(httpd_req_t* req) {
     }
 
     UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    _streamingActive = false;              // 先置 false，WS 发送任务会自行检测退出
+    stopStreamCaptureTask();               // 停止后台采集，释放环形队列
+    vTaskDelay(pdMS_TO_TICKS(50));         // 等待 WS 发送任务感知 alive=false 并退出
     camera.StopStreamingMode();
-    
-    _streamingActive = false;
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"success\":true}");
     return ESP_OK;
 }
 
-// 获取一帧JPEG图像，前端定时调用
-esp_err_t WebServerService::apiStreamFrameHandler(httpd_req_t* req) {
-    if (!_streamingActive) {
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_sendstr(req, "{\"error\":\"Streaming not active\"}");
-        return ESP_FAIL;
-    }
+// ===== WebSocket 推流：后台线程持续抓帧缓存到环形队列，WS 发送任务逐帧推送 =====
+// WS 二进制帧直接承载 JPEG 原始数据，不加额外帧头（前端收到即可渲染），最小开销
+// 每帧发送前若队列积压超过阈值，会丢最旧帧追到最新，保证实时性（低延迟）
+static const int STREAM_RING_KEEP = 2;  // 允许队列中保留的最大积压帧数（超过则丢旧追新）
 
-    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
-    if (!camera.IsInitialized()) {
-        httpd_resp_set_status(req, "503 Service Unavailable");
-        httpd_resp_sendstr(req, "{\"error\":\"Camera not initialized\"}");
-        return ESP_FAIL;
+// 环形队列：入队一帧；队列满则丢最旧帧
+static void streamRingPush(uint8_t* jpeg, size_t len, uint64_t ts) {
+    if (!jpeg || len == 0) { free(jpeg); return; }
+    portENTER_CRITICAL(&s_streamRingMux);
+    if (s_streamRingCount == STREAM_RING_SIZE) {
+        free(s_streamRing[s_streamRingHead].jpeg);
+        s_streamRing[s_streamRingHead].jpeg = nullptr;
+        s_streamRing[s_streamRingHead].len = 0;
+        s_streamRing[s_streamRingHead].ts = 0;
+        s_streamRingHead = (s_streamRingHead + 1) % STREAM_RING_SIZE;
+        s_streamRingCount--;
     }
+    int writeIdx = (s_streamRingHead + s_streamRingCount) % STREAM_RING_SIZE;
+    s_streamRing[writeIdx].jpeg = jpeg;
+    s_streamRing[writeIdx].len = len;
+    s_streamRing[writeIdx].ts = ts;
+    s_streamRingCount++;
+    portEXIT_CRITICAL(&s_streamRingMux);
+}
 
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) {
-        httpd_resp_set_status(req, "503 Service Unavailable");
-        httpd_resp_sendstr(req, "{\"error\":\"Failed to get frame\"}");
-        return ESP_FAIL;
+// 环形队列：弹出最旧一帧；成功返回 true 并把所有权交给调用方（需 free(jpeg)）
+static bool streamRingPop(StreamFrame* out) {
+    bool ok = false;
+    portENTER_CRITICAL(&s_streamRingMux);
+    if (s_streamRingCount > 0) {
+        *out = s_streamRing[s_streamRingHead];
+        s_streamRing[s_streamRingHead].jpeg = nullptr;
+        s_streamRing[s_streamRingHead].len = 0;
+        s_streamRing[s_streamRingHead].ts = 0;
+        s_streamRingHead = (s_streamRingHead + 1) % STREAM_RING_SIZE;
+        s_streamRingCount--;
+        ok = true;
     }
+    portEXIT_CRITICAL(&s_streamRingMux);
+    return ok;
+}
 
-    if (fb->format != PIXFORMAT_JPEG) {
+// 环形队列：丢帧追到最新，保留 keep 帧。返回被丢弃帧数
+static int streamRingCatchUp(int keep) {
+    int dropped = 0;
+    portENTER_CRITICAL(&s_streamRingMux);
+    while (s_streamRingCount > keep) {
+        free(s_streamRing[s_streamRingHead].jpeg);
+        s_streamRing[s_streamRingHead].jpeg = nullptr;
+        s_streamRing[s_streamRingHead].len = 0;
+        s_streamRing[s_streamRingHead].ts = 0;
+        s_streamRingHead = (s_streamRingHead + 1) % STREAM_RING_SIZE;
+        s_streamRingCount--;
+        dropped++;
+    }
+    portEXIT_CRITICAL(&s_streamRingMux);
+    return dropped;
+}
+
+static void streamRingClear() {
+    portENTER_CRITICAL(&s_streamRingMux);
+    for (int i = 0; i < STREAM_RING_SIZE; i++) {
+        if (s_streamRing[i].jpeg) {
+            free(s_streamRing[i].jpeg);
+            s_streamRing[i].jpeg = nullptr;
+            s_streamRing[i].len = 0;
+            s_streamRing[i].ts = 0;
+        }
+    }
+    s_streamRingHead = 0;
+    s_streamRingCount = 0;
+    portEXIT_CRITICAL(&s_streamRingMux);
+}
+
+// 后台采集任务：持续抓帧，拷贝入环形队列（不阻塞相机）
+static void streamCaptureTask(void*) {
+    ESP_LOGI(TAG, "Stream capture task started");
+    while (s_streamCaptureRun) {
+        camera_fb_t* fb = esp_camera_fb_get();
+        if (!fb) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+            continue;
+        }
+        uint64_t ts = getCurrentTimeMs();
+        uint8_t* copy = nullptr;
+        size_t len = fb->len;
+        if (fb->format == PIXFORMAT_JPEG && len > 0) {
+            copy = (uint8_t*)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+            if (copy) {
+                memcpy(copy, fb->buf, len);
+            }
+        }
         esp_camera_fb_return(fb);
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_sendstr(req, "{\"error\":\"Frame not JPEG\"}");
-        return ESP_FAIL;
+        if (copy) {
+            streamRingPush(copy, len, ts);
+        }
+        taskYIELD();
+    }
+    streamRingClear();
+    s_streamCaptureTask = nullptr;
+    vTaskDelete(nullptr);
+}
+
+static void startStreamCaptureTask() {
+    if (s_streamCaptureTask) return;
+    s_streamCaptureRun = true;
+    streamRingClear();
+    xTaskCreate(streamCaptureTask, "stream_cap", 4096,
+                nullptr, tskIDLE_PRIORITY + 4, &s_streamCaptureTask);
+}
+
+static void stopStreamCaptureTask() {
+    s_streamCaptureRun = false;
+    if (s_streamCaptureTask) {
+        int waits = 0;
+        while (s_streamCaptureTask && waits < 50) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            waits++;
+        }
+        if (s_streamCaptureTask) {
+            vTaskDelete(s_streamCaptureTask);
+            s_streamCaptureTask = nullptr;
+        }
+    }
+    streamRingClear();
+}
+
+// ===== 每个 WebSocket 连接一个独立发送任务 =====
+struct WsSessCtx {
+    httpd_handle_t hd;
+    int fd;
+    TaskHandle_t sendTask;
+    volatile bool alive;
+};
+static const int    WS_SEND_STACK = 4096;
+static const UBaseType_t WS_SEND_PRIO = tskIDLE_PRIORITY + 5;
+
+static void streamWsSendTask(void* arg) {
+    WsSessCtx* ctx = (WsSessCtx*)arg;
+    ESP_LOGI(TAG, "WS stream sender started, fd=%d", ctx->fd);
+    while (ctx->alive && _streamingActive) {
+        // 追帧：如果队列积压过多，丢最旧追到最新，保持低延迟
+        streamRingCatchUp(STREAM_RING_KEEP);
+
+        StreamFrame frame;
+        if (!streamRingPop(&frame)) {
+            // 队列为空，短暂等待（不丢 CPU）
+            vTaskDelay(pdMS_TO_TICKS(2));
+            continue;
+        }
+
+        // 通过 WS 发送二进制帧（直接 JPEG 原始数据，无帧头）
+        httpd_ws_frame_t pkt = {};
+        pkt.final = true;
+        pkt.fragmented = false;
+        pkt.type = HTTPD_WS_TYPE_BINARY;
+        pkt.payload = frame.jpeg;
+        pkt.len = frame.len;
+        esp_err_t err = httpd_ws_send_frame_async(ctx->hd, ctx->fd, &pkt);
+        free(frame.jpeg);
+
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "WS send failed fd=%d err=%d, closing", ctx->fd, (int)err);
+            ctx->alive = false;
+            break;
+        }
+    }
+    ESP_LOGI(TAG, "WS stream sender exited, fd=%d", ctx->fd);
+    ctx->sendTask = nullptr;
+    free(ctx);
+    vTaskDelete(nullptr);
+}
+
+// WebSocket 推流端点 handler：处理 WS 事件（握手/收包/关闭）
+// 前端应在 onopen 后发送一条文本消息（如 "start"）触发发送任务创建
+esp_err_t WebServerService::apiStreamWsHandler(httpd_req_t* req) {
+    if (req->method == HTTP_GET) {
+        ESP_LOGI(TAG, "WS stream handshake, fd=%d", httpd_req_to_sockfd(req));
+        return ESP_OK;
     }
 
-    // 设置响应头
-    httpd_resp_set_type(req, "image/jpeg");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
-    httpd_resp_set_hdr(req, "Pragma", "no-cache");
-    // 启用 keep-alive：复用 TCP 连接，避免每次帧请求都重新握手（节省 ~10-30ms/帧）
-    // 必须有正确的 Content-Length，否则会退化为 chunked 编码导致连接关闭
-    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    httpd_ws_frame_t ws_pkt;
+    memset(&ws_pkt, 0, sizeof(ws_pkt));
+    ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+    esp_err_t err = httpd_ws_recv_frame(req, &ws_pkt, 0);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "WS recv info failed err=%d fd=%d", (int)err, httpd_req_to_sockfd(req));
+        return err;
+    }
 
-    // 附加帧时间戳（开机后毫秒，单调递增），前端按此排序以消除并发请求导致的乱序
-    char ts_str[32];
-    snprintf(ts_str, sizeof(ts_str), "%llu", (unsigned long long)getCurrentTimeMs());
-    httpd_resp_set_hdr(req, "X-Frame-Timestamp", ts_str);
+    uint8_t* payloadBuf = nullptr;
+    if (ws_pkt.len > 0) {
+        payloadBuf = (uint8_t*)calloc(1, ws_pkt.len + 1);
+        if (payloadBuf) {
+            ws_pkt.payload = payloadBuf;
+            httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+        }
+    }
 
-    // 设置 Content-Length 后用 httpd_resp_send 一次发送
-    // httpd 内部会使用 send() 直接发送，避免分段 chunk 编码开销
-    char content_len[16];
-    snprintf(content_len, sizeof(content_len), "%d", (int)fb->len);
-    httpd_resp_set_hdr(req, "Content-Length", content_len);
+    int fd = httpd_req_to_sockfd(req);
 
-    esp_err_t ret = httpd_resp_send(req, (const char*)fb->buf, fb->len);
+    switch (ws_pkt.type) {
+    case HTTPD_WS_TYPE_TEXT: {
+        // 客户端发送 "start"：为该连接创建独立发送任务
+        // 前端保证 open 后只发一次 "start"，不会重复创建
+        if (_streamingActive) {
+            auto* ctx = (WsSessCtx*)calloc(1, sizeof(WsSessCtx));
+            if (ctx) {
+                ctx->hd = req->handle;
+                ctx->fd = fd;
+                ctx->alive = true;
+                ctx->sendTask = nullptr;
+                ESP_LOGI(TAG, "WS creating sender task, fd=%d, msg=%s", fd,
+                         payloadBuf ? (char*)payloadBuf : "");
+                xTaskCreate(streamWsSendTask, "ws_send", WS_SEND_STACK,
+                            ctx, WS_SEND_PRIO, &ctx->sendTask);
+            }
+        }
+        break;
+    }
 
-    esp_camera_fb_return(fb);
-    return ret;
+    case HTTPD_WS_TYPE_CLOSE: {
+        ESP_LOGI(TAG, "WS close fd=%d", fd);
+        // 无需手动清理：发送任务下次 httpd_ws_send_data_async 会返回错误，自行退出并 free(ctx)
+        httpd_ws_frame_t close_pkt = {};
+        close_pkt.final = true;
+        close_pkt.type = HTTPD_WS_TYPE_CLOSE;
+        httpd_ws_send_frame(req, &close_pkt);
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    free(payloadBuf);
+    return ESP_OK;
 }
 
 // 拍照完成回调，由相机调用
@@ -785,7 +1017,7 @@ void WebServerService::start() {
     regUri(&uri_camera_status, "/api/camera/status");
     regUri(&uri_stream_start, "/api/camera/stream-start");
     regUri(&uri_stream_stop, "/api/camera/stream-stop");
-    regUri(&uri_stream_frame, "/api/camera/stream-frame");
+    regUri(&uri_stream_ws, "/ws/camera/stream");
 
     ESP_LOGI(TAG, "Web server started successfully on port 80!");
     ESP_LOGI(TAG, "All URI handlers registered");
@@ -794,8 +1026,10 @@ void WebServerService::start() {
 void WebServerService::stop() {
     if (_server) {
         if (_streamingActive) {
-            UnitCamS3_5MP::getInstance().StopStreamingMode();
             _streamingActive = false;
+            stopStreamCaptureTask();
+            vTaskDelay(pdMS_TO_TICKS(50));
+            UnitCamS3_5MP::getInstance().StopStreamingMode();
         }
         httpd_stop(_server);
         _server = nullptr;
