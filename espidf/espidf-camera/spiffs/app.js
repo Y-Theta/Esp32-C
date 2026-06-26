@@ -3,6 +3,8 @@ let currentConfig = {
     wifiList: [{ssid:'', pass:''}, {ssid:'', pass:''}, {ssid:'', pass:''}],
     postServer: '',
     postUsePut: false,
+    bootMode: 0,
+    uploadInterval: 60,
     jpegQuantity: 1,
     frameSize: 10,
     streamFps: 25,
@@ -45,9 +47,13 @@ const MAX_WIFI_SSIDS = 3;
 // 更新内存状态显示
 async function updateMemoryStatus() {
     try {
-        const response = await fetch('/api/memory-status');
-        if (response.ok) {
-            const data = await response.json();
+        const [memResponse, statusResponse] = await Promise.all([
+            fetch('/api/memory-status'),
+            fetch('/api/status')
+        ]);
+        
+        if (memResponse.ok) {
+            const data = await memResponse.json();
             
             document.getElementById('ram-used').textContent = formatBytes(data.ram.used);
             document.getElementById('ram-total').textContent = formatBytes(data.ram.total);
@@ -55,8 +61,22 @@ async function updateMemoryStatus() {
             document.getElementById('psram-used').textContent = formatBytes(data.psram.used);
             document.getElementById('psram-total').textContent = formatBytes(data.psram.total);
         }
+        
+        if (statusResponse.ok) {
+            const status = await statusResponse.json();
+            const dot = document.getElementById('wifi-status-dot');
+            const text = document.getElementById('wifi-status-text');
+            
+            if (status.wifiConnected) {
+                dot.className = 'status-dot-small';
+                text.textContent = status.wifiMode === 'AP' ? 'AP 模式' : `已连接: ${status.wifiSSID || 'WiFi'}`;
+            } else {
+                dot.className = 'status-dot-small busy';
+                text.textContent = status.wifiMode === 'AP' ? 'AP 模式' : '连接中...';
+            }
+        }
     } catch (e) {
-        console.error('Failed to update memory status:', e);
+        console.error('Failed to update status:', e);
     }
 }
 
@@ -87,12 +107,47 @@ function renderWifiList() {
     }
 }
 
+// 根据启动模式控制Tab显示
+function applyBootModeUI(bootMode) {
+    const cameraTab = document.querySelector('.tab[data-tab="camera"]');
+    const monitorTab = document.querySelector('.tab[data-tab="monitor"]');
+    const cameraSettingsTab = document.querySelector('.tab[data-tab="camera-settings"]');
+    const systemTab = document.querySelector('.tab[data-tab="system"]');
+    
+    if (bootMode === 1) {
+        // 监控模式：只保留相机设置和系统设置
+        if (cameraTab) cameraTab.style.display = 'none';
+        if (monitorTab) monitorTab.style.display = 'none';
+        
+        // 切换到相机设置tab（如果当前在被隐藏的tab）
+        const activeTab = document.querySelector('.tab.active');
+        if (activeTab && (activeTab.dataset.tab === 'camera' || activeTab.dataset.tab === 'monitor')) {
+            cameraSettingsTab.click();
+        }
+    } else {
+        // 交互模式：显示所有tab
+        if (cameraTab) cameraTab.style.display = '';
+        if (monitorTab) monitorTab.style.display = '';
+    }
+    
+    // 上传间隔和服务器提示显示控制
+    const uploadIntervalGroup = document.getElementById('upload-interval-group');
+    const serverHint = document.getElementById('server-hint');
+    if (bootMode === 1) {
+        uploadIntervalGroup.style.display = 'block';
+    } else {
+        uploadIntervalGroup.style.display = 'none';
+        serverHint.style.display = 'none';
+    }
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     renderWifiList();
     initTabs();
     initRangeInputs();
     initButtons();
+    initBootModeSelector();
     loadConfig();
     loadCameraStatus();
     
@@ -100,6 +155,39 @@ document.addEventListener('DOMContentLoaded', () => {
     
     memoryRefreshTimer = setInterval(updateMemoryStatus, 3000);
 });
+
+// 启动模式选择事件
+function initBootModeSelector() {
+    const radios = document.querySelectorAll('input[name="boot-mode"]');
+    radios.forEach(radio => {
+        radio.addEventListener('change', () => {
+            if (radio.checked) {
+                const mode = parseInt(radio.value);
+                applyBootModeUI(mode);
+                validateBootMode(mode);
+            }
+        });
+    });
+}
+
+// 验证启动模式配置
+function validateBootMode(mode) {
+    const serverInput = document.getElementById('post-server');
+    const serverHint = document.getElementById('server-hint');
+    
+    if (mode === 1) {
+        // 监控模式需要服务器URL
+        if (!serverInput.value.trim()) {
+            serverHint.style.display = 'block';
+            return false;
+        } else {
+            serverHint.style.display = 'none';
+        }
+    } else {
+        serverHint.style.display = 'none';
+    }
+    return true;
+}
 
 // Tab 导航
 function initTabs() {
@@ -215,6 +303,16 @@ function updateCameraInitStatus(initialized) {
 
 // 填充系统设置表单
 function fillSystemForm(config) {
+    // 设置启动模式
+    const bootMode = config.bootMode || 0;
+    const radio = document.querySelector(`input[name="boot-mode"][value="${bootMode}"]`);
+    if (radio) radio.checked = true;
+    applyBootModeUI(bootMode);
+    
+    if (config.uploadInterval) {
+        document.getElementById('upload-interval').value = config.uploadInterval;
+    }
+    
     // 填充WiFi列表
     for (let i = 0; i < MAX_WIFI_SSIDS; i++) {
         const ssidInput = document.getElementById(`wifi-ssid-${i}`);
@@ -229,6 +327,8 @@ function fillSystemForm(config) {
     
     document.getElementById('post-server').value = config.postServer || '';
     document.getElementById('post-use-put').checked = config.postUsePut || false;
+    
+    validateBootMode(bootMode);
 }
 
 // 填充相机设置表单
@@ -498,6 +598,18 @@ async function saveConfig() {
     const saveBtn = document.getElementById('save-config-btn');
     const statusElement = document.getElementById('save-status');
 
+    // 获取当前选择的启动模式
+    const bootModeRadio = document.querySelector('input[name="boot-mode"]:checked');
+    const bootMode = bootModeRadio ? parseInt(bootModeRadio.value) : 0;
+    
+    // 监控模式验证：必须配置服务器URL
+    if (bootMode === 1) {
+        if (!validateBootMode(bootMode)) {
+            showMessage(statusElement, '监控模式必须配置图片上传URL！', 'error');
+            return;
+        }
+    }
+
     saveBtn.disabled = true;
     showMessage(statusElement, '正在保存...', 'info');
 
@@ -512,6 +624,10 @@ async function saveConfig() {
     
     currentConfig.postServer = document.getElementById('post-server').value;
     currentConfig.postUsePut = document.getElementById('post-use-put').checked;
+    currentConfig.bootMode = bootMode;
+    
+    const uploadInterval = parseInt(document.getElementById('upload-interval').value);
+    currentConfig.uploadInterval = (uploadInterval >= 10 && uploadInterval <= 3600) ? uploadInterval : 60;
 
     // 同时保存相机参数
     currentConfig.jpegQuantity = parseInt(document.getElementById('jpeg-quality').value);

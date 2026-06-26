@@ -121,12 +121,6 @@ void StorageService::load() {
         }
     }
     
-    item = cJSON_GetObjectItem(doc, "startPoster");
-    if (item && cJSON_IsString(item)) _config.startPoster = item->valuestring;
-    
-    item = cJSON_GetObjectItem(doc, "waitApFirst");
-    if (item && cJSON_IsString(item)) _config.waitApFirst = item->valuestring;
-    
     item = cJSON_GetObjectItem(doc, "postServer");
     if (item && cJSON_IsString(item)) _config.postServer = item->valuestring;
     
@@ -134,6 +128,15 @@ void StorageService::load() {
     if (item) {
         if (cJSON_IsBool(item)) _config.postUsePut = cJSON_IsTrue(item);
         else if (cJSON_IsNumber(item)) _config.postUsePut = (item->valueint != 0);
+    }
+    
+    item = cJSON_GetObjectItem(doc, "bootMode");
+    if (item && cJSON_IsNumber(item)) _config.bootMode = item->valueint;
+    
+    item = cJSON_GetObjectItem(doc, "uploadInterval");
+    if (item && cJSON_IsNumber(item)) {
+        int interval = item->valueint;
+        if (interval >= 10 && interval <= 3600) _config.uploadInterval = interval;
     }
     
     item = cJSON_GetObjectItem(doc, "jpegQuantity");
@@ -209,11 +212,10 @@ void StorageService::save() {
     cJSON_AddStringToObject(doc, "wifiSsid", _config.wifiSsid[0].c_str());
     cJSON_AddStringToObject(doc, "wifiPass", _config.wifiPass[0].c_str());
     
-    cJSON_AddStringToObject(doc, "startPoster", _config.startPoster.c_str());
-    cJSON_AddStringToObject(doc, "waitApFirst", _config.waitApFirst.c_str());
-    
     cJSON_AddStringToObject(doc, "postServer", _config.postServer.c_str());
     cJSON_AddBoolToObject(doc, "postUsePut", _config.postUsePut);
+    cJSON_AddNumberToObject(doc, "bootMode", _config.bootMode);
+    cJSON_AddNumberToObject(doc, "uploadInterval", _config.uploadInterval);
     
     cJSON_AddNumberToObject(doc, "jpegQuantity", _config.jpegQuantity);
     cJSON_AddNumberToObject(doc, "frameSize", _config.frameSize);

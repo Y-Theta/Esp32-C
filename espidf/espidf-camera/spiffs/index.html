@@ -289,6 +289,37 @@
                         <span class="hint">修改后需要重启生效</span>
                     </div>
 
+                    <!-- 启动选项 -->
+                    <div class="form-section">
+                        <h3>🚀 启动选项</h3>
+                        <p class="section-hint">选择设备启动后的运行模式</p>
+                        <div class="form-group full-width">
+                            <div class="radio-group">
+                                <label class="radio-label">
+                                    <input type="radio" name="boot-mode" value="0" checked>
+                                    <span class="radio-custom"></span>
+                                    <div class="radio-content">
+                                        <span class="radio-title">交互模式</span>
+                                        <span class="radio-desc">启动AP热点，提供完整WebUI配置功能</span>
+                                    </div>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="boot-mode" value="1">
+                                    <span class="radio-custom"></span>
+                                    <div class="radio-content">
+                                        <span class="radio-title">监控模式</span>
+                                        <span class="radio-desc">自动连接WiFi，定时上传图片到服务器</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group full-width" id="upload-interval-group" style="display: none;">
+                            <label for="upload-interval">上传间隔 (秒)</label>
+                            <input type="number" id="upload-interval" value="60" min="10" max="3600" placeholder="10-3600">
+                            <p class="input-hint">间隔范围：10秒 - 3600秒（1小时）</p>
+                        </div>
+                    </div>
+
                     <!-- WiFi 设置 -->
                     <div class="form-section">
                         <h3>📶 WiFi 设置</h3>
@@ -305,12 +336,13 @@
                         <div class="form-group full-width">
                             <label for="post-server">图片上传 URL</label>
                             <input type="text" id="post-server" placeholder="例如: https://example.com/upload">
+                            <p class="input-hint" id="server-hint" style="display: none; color: var(--danger);">监控模式必须配置上传URL</p>
                         </div>
                         <div class="form-group checkbox-group full-width">
                             <label class="checkbox-label">
                                 <input type="checkbox" id="post-use-put">
                                 <span class="checkbox-custom"></span>
-                                <span>使用 PUT 方式上传</span>
+                                <span>使用 PUT 方式上传（二进制直接上传）</span>
                             </label>
                         </div>
                     </div>

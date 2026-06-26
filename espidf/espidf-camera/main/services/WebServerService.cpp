@@ -1,11 +1,13 @@
 #include "services/WebServerService.h"
 #include "services/StorageService.h"
+#include "services/WifiService.h"
 #include "camera/UnitCamS3_5MP.h"
 #include "esp_log.h"
 #include "cJSON.h"
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
+#include <esp_wifi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +17,14 @@
 #include "freertos/semphr.h"
 
 static const char* TAG = "WebServerService";
+
+// 重启任务：延迟一段时间后重启，确保HTTP响应发送完成
+static void restartTask(void* arg) {
+    vTaskDelay(pdMS_TO_TICKS(800));  // 等待800ms确保响应完全发送
+    ESP_LOGI(TAG, "Restarting now...");
+    esp_restart();
+    vTaskDelete(nullptr);
+}
 
 // 全局缓存最后一张照片
 static uint8_t* _photoBuffer = nullptr;
@@ -285,9 +295,8 @@ esp_err_t WebServerService::getConfigHandler(httpd_req_t* req) {
     
     cJSON_AddStringToObject(root, "postServer", config.postServer.c_str());
     cJSON_AddBoolToObject(root, "postUsePut", config.postUsePut);
-    
-    cJSON_AddStringToObject(root, "startPoster", config.startPoster.c_str());
-    cJSON_AddStringToObject(root, "waitApFirst", config.waitApFirst.c_str());
+    cJSON_AddNumberToObject(root, "bootMode", config.bootMode);
+    cJSON_AddNumberToObject(root, "uploadInterval", config.uploadInterval);
     
     cJSON_AddNumberToObject(root, "jpegQuantity", config.jpegQuantity);
     cJSON_AddNumberToObject(root, "frameSize", config.frameSize);
@@ -353,6 +362,15 @@ esp_err_t WebServerService::saveConfigHandler(httpd_req_t* req) {
         if (cJSON_IsBool(item)) config.postUsePut = cJSON_IsTrue(item);
         else if (cJSON_IsNumber(item)) config.postUsePut = (item->valueint != 0);
     }
+    
+    item = cJSON_GetObjectItem(root, "bootMode");
+    if (item && cJSON_IsNumber(item)) config.bootMode = item->valueint;
+    
+    item = cJSON_GetObjectItem(root, "uploadInterval");
+    if (item && cJSON_IsNumber(item)) {
+        int interval = item->valueint;
+        if (interval >= 10 && interval <= 3600) config.uploadInterval = interval;
+    }
 
     item = cJSON_GetObjectItem(root, "jpegQuantity");
     if (item && cJSON_IsNumber(item)) config.jpegQuantity = item->valueint;
@@ -401,7 +419,10 @@ esp_err_t WebServerService::saveConfigHandler(httpd_req_t* req) {
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"success\":true}");
     
-    // 延迟重启
+    // 延迟重启：创建独立任务，确保响应完全发送后再重启
+    ESP_LOGI(TAG, "Config saved, scheduling restart in 800ms...");
+    xTaskCreate(restartTask, "restart_task", 2048, nullptr, tskIDLE_PRIORITY + 1, nullptr);
+    
     return ESP_OK;
 }
 
@@ -452,6 +473,23 @@ esp_err_t WebServerService::apiGetStatusHandler(httpd_req_t* req) {
     cJSON_AddBoolToObject(root, "newPhotoReady", _newPhotoReady);
     cJSON_AddNumberToObject(root, "photoVersion", _photoVersion);
     cJSON_AddBoolToObject(root, "streamingActive", _streamingActive);
+    
+    // 添加WiFi状态信息
+    WifiService& wifi = WifiService::getInstance();
+    cJSON_AddBoolToObject(root, "wifiConnected", wifi.isConnected());
+    cJSON_AddBoolToObject(root, "apMode", wifi.isAPMode());
+    cJSON_AddStringToObject(root, "wifiMode", wifi.isAPMode() ? "AP" : "STA");
+    
+    // 获取当前连接的SSID
+    wifi_ap_record_t ap_info;
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+        char ssid_str[33];
+        memset(ssid_str, 0, sizeof(ssid_str));
+        strlcpy(ssid_str, (char*)ap_info.ssid, sizeof(ssid_str));
+        cJSON_AddStringToObject(root, "wifiSSID", ssid_str);
+    } else {
+        cJSON_AddStringToObject(root, "wifiSSID", "");
+    }
 
     char* json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
@@ -792,22 +830,46 @@ static void streamRingClear() {
 // 后台采集任务：持续抓帧，拷贝入环形队列（不阻塞相机）
 static void streamCaptureTask(void*) {
     ESP_LOGI(TAG, "Stream capture task started");
+    UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
+    
+    // 简易RAII锁守卫，确保任何continue/return路径都能解锁
+    struct StreamLockGuard {
+        UnitCamS3_5MP& cam;
+        bool locked = true;
+        StreamLockGuard(UnitCamS3_5MP& c) : cam(c) { cam._lockCameraFunc(); }
+        ~StreamLockGuard() { if (locked) cam._unlockCameraFunc(); }
+        void unlock() { if (locked) { cam._unlockCameraFunc(); locked = false; } }
+    };
+    
     while (s_streamCaptureRun) {
-        camera_fb_t* fb = esp_camera_fb_get();
-        if (!fb) {
-            vTaskDelay(pdMS_TO_TICKS(1));
-            continue;
-        }
-        uint64_t ts = getCurrentTimeMs();
+        camera_fb_t* fb = nullptr;
         uint8_t* copy = nullptr;
-        size_t len = fb->len;
-        if (fb->format == PIXFORMAT_JPEG && len > 0) {
-            copy = (uint8_t*)heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
-            if (copy) {
-                memcpy(copy, fb->buf, len);
+        size_t len = 0;
+        uint64_t ts = 0;
+        
+        {
+            // RAII锁：离开作用域自动解锁
+            StreamLockGuard lock(camera);
+            
+            fb = esp_camera_fb_get();
+            if (!fb) {
+                // 锁自动释放，继续下一次循环
+                vTaskDelay(pdMS_TO_TICKS(1));
+                continue;
             }
+            
+            ts = getCurrentTimeMs();
+            if (fb->format == PIXFORMAT_JPEG && fb->len > 0) {
+                copy = (uint8_t*)heap_caps_malloc(fb->len, MALLOC_CAP_SPIRAM);
+                if (copy) {
+                    len = fb->len;
+                    memcpy(copy, fb->buf, fb->len);
+                }
+            }
+            esp_camera_fb_return(fb);
+            // 锁在这里自动释放
         }
-        esp_camera_fb_return(fb);
+        
         if (copy) {
             streamRingPush(copy, len, ts);
         }

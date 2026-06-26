@@ -1,145 +1,17 @@
 #include "camera/UnitCamS3_5MP.h"
 #include "services/StorageService.h"
-#include "services/WifiService.h"
-#include "esp_http_client.h"
-#include "esp_crt_bundle.h"
 #include "esp_log.h"
 
-static const char* TAG = "PY260 Transfer";
-
-namespace Operation {
-
-static const char* boundary = "-------562164BDF";
-static char constpostinfo[512];
-static char footer[32];
-
-static void init_post_data() {
-    snprintf(constpostinfo, sizeof(constpostinfo),
-             "--%s\r\n"
-             "Content-Disposition: form-data; name=\"image\"; filename=\"photo.jpeg\"\r\n"
-             "Content-Type: image/jpeg\r\n\r\n", boundary);
-    snprintf(footer, sizeof(footer), "\r\n--%s--\r\n", boundary);
-}
-
-static esp_err_t _http_event_handler(esp_http_client_event_t* evt) {
-    switch(evt->event_id) {
-        case HTTP_EVENT_ERROR:
-            ESP_LOGI(TAG, "HTTP_EVENT_ERROR");
-            break;
-        case HTTP_EVENT_ON_CONNECTED:
-            ESP_LOGI(TAG, "HTTP_EVENT_ON_CONNECTED");
-            break;
-        case HTTP_EVENT_HEADER_SENT:
-            ESP_LOGI(TAG, "HTTP_EVENT_HEADER_SENT");
-            break;
-        case HTTP_EVENT_ON_HEADER:
-            break;
-        case HTTP_EVENT_ON_DATA:
-            break;
-        case HTTP_EVENT_ON_FINISH:
-            ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH");
-            break;
-        case HTTP_EVENT_DISCONNECTED:
-            ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
-            break;
-        default:
-            break;
-    }
-    return ESP_OK;
-}
-
-static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* /*ump*/) {
-    StorageService& storage = StorageService::getInstance();
-    const char* serverUrl = storage.getConfig().postServer.c_str();
-    bool usePut = storage.getConfig().postUsePut;
-
-    if (strlen(serverUrl) == 0) {
-        ESP_LOGI(TAG, "No upload server configured, skipping upload");
-        return;
-    }
-
-    esp_http_client_config_t config = {};
-    config.url = serverUrl;
-    config.event_handler = _http_event_handler;
-    config.timeout_ms = 10000;
-    config.transport_type = HTTP_TRANSPORT_OVER_SSL;
-    config.skip_cert_common_name_check = true;
-    config.crt_bundle_attach = esp_crt_bundle_attach;
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (!client) {
-        ESP_LOGE(TAG, "Failed to init HTTP client");
-        return;
-    }
-
-    int contentLength;
-    
-    if (usePut) {
-        // PUT方式：直接上传JPEG二进制数据
-        contentLength = fb->len;
-        esp_http_client_set_method(client, HTTP_METHOD_PUT);
-        esp_http_client_set_header(client, "Content-Type", "image/jpeg");
-    } else {
-        // POST multipart/form-data方式
-        contentLength = strlen(constpostinfo) + fb->len + strlen(footer);
-        esp_http_client_set_method(client, HTTP_METHOD_POST);
-        esp_http_client_set_header(client, "Accept", "*/*");
-        esp_http_client_set_header(client, "Connection", "Keep-Alive");
-        
-        char content_type[64];
-        snprintf(content_type, sizeof(content_type), "multipart/form-data; boundary=%s", boundary);
-        esp_http_client_set_header(client, "Content-Type", content_type);
-    }
-    
-    char content_length_hdr[32];
-    snprintf(content_length_hdr, sizeof(content_length_hdr), "%d", contentLength);
-    esp_http_client_set_header(client, "Content-Length", content_length_hdr);
-
-    esp_err_t err = esp_http_client_open(client, contentLength);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
-        esp_http_client_cleanup(client);
-        return;
-    }
-
-    int written = 0;
-    if (usePut) {
-        written += esp_http_client_write(client, (const char*)fb->buf, fb->len);
-    } else {
-        written += esp_http_client_write(client, constpostinfo, strlen(constpostinfo));
-        written += esp_http_client_write(client, (const char*)fb->buf, fb->len);
-        written += esp_http_client_write(client, footer, strlen(footer));
-    }
-    ESP_LOGI(TAG, "Total bytes written: %d / %d (method: %s)", 
-             written, contentLength, usePut ? "PUT" : "POST");
-
-    int fetch_ret = esp_http_client_fetch_headers(client);
-    int status_code = esp_http_client_get_status_code(client);
-    ESP_LOGI(TAG, "fetch_headers ret=%d, status=%d", fetch_ret, status_code);
-    
-    if (status_code >= 200 && status_code < 300) {
-        ESP_LOGI(TAG, "Upload successful");
-    } else {
-        ESP_LOGI(TAG, "Upload failed, status code: %d", status_code);
-    }
-
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-}
-
-} // namespace Operation
+static const char* TAG = "ESP32Camera";
 
 extern "C" void app_main(void) {
     vTaskDelay(3000 / portTICK_PERIOD_MS);
-
-    Operation::init_post_data();
 
     StorageService& storage = StorageService::getInstance();
     storage.init();
     ESP_LOGI(TAG, "Storage initialized");
 
     UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
-    camera.OnProcessImage = Operation::upload_photo;
     camera.Init();
 
     camera.Start();
