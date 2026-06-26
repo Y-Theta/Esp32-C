@@ -16,10 +16,7 @@ public:
 
     std::function<void()> OnTakePhotoStart;
     std::function<void()> OnTakePhotoEnd;
-    std::function<void(int gpio)> OnBtnClick;
     std::function<void(camera_fb_t* buffer, UnitCamS3_5MP* camera)> OnProcessImage;
-    std::function<void(camera_fb_t* buffer)> OnWebPhotoTaken;
-    // 重新初始化相机前的清理回调（用于释放上层持有的缓冲区，避免 PSRAM 不足）
     std::function<void()> onBeforeReload;
 
     void Init();
@@ -29,12 +26,9 @@ public:
 
     void Start();
     void StartForSetting();
-    void StartForWorking();
 
-    // Web 功能接口
     void WebTakePhoto(std::function<void(camera_fb_t* buffer)> processPhoto = nullptr);
 
-    // 运行时切换相机配置
     bool IsInitialized() const { return _initialized; }
     void ReloadConfig();
     void SetFrameSize(framesize_t frameSize);
@@ -47,7 +41,6 @@ public:
     void ApplyCameraConfig();
     void SetAllCameraConfig(int frameSize, int jpegQuality, int wbMode, int specialEffect, int contrast, int saturation, int brightness);
 
-    // 实时监控模式：使用 VGA + 双缓冲 + LATEST 抓取模式以保证帧率
     void StartStreamingMode();
     void StopStreamingMode();
     bool IsStreamingMode() const { return _streamingMode; }
@@ -58,9 +51,6 @@ private:
 
     void cam_init();
     void led_init();
-    void sd_init();
-    void mic_init();
-    void btn_init();
 
     bool _initialized = false;
     bool _streamingMode = false;

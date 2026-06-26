@@ -3,7 +3,6 @@
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "nvs_flash.h"
-#include "freertos/task.h"
 #include <string>
 #include <arpa/inet.h>
 
@@ -12,12 +11,14 @@ static const char* TAG = "WifiService";
 void WifiService::init(const std::string& ssid, const std::string& password) {
     _ssid = ssid;
     _password = password;
-    _eventGroup = xEventGroupCreate();
     _retryCount = 0;
     _apMode = false;
     
+    if (!_eventGroup) {
+        _eventGroup = xEventGroupCreate();
+    }
+    
     if (!_initialized) {
-        // 初始化 NVS
         esp_err_t ret = nvs_flash_init();
         if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
             ESP_ERROR_CHECK(nvs_flash_erase());
@@ -25,13 +26,11 @@ void WifiService::init(const std::string& ssid, const std::string& password) {
         }
         ESP_ERROR_CHECK(ret);
         
-        // 初始化网络
         ESP_ERROR_CHECK(esp_netif_init());
         ESP_ERROR_CHECK(esp_event_loop_create_default());
         esp_netif_create_default_wifi_sta();
         esp_netif_create_default_wifi_ap();
         
-        // 注册事件处理器
         ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
                                                             ESP_EVENT_ANY_ID,
                                                             &wifiEventCallback,
@@ -43,7 +42,6 @@ void WifiService::init(const std::string& ssid, const std::string& password) {
                                                             this,
                                                             NULL));
         
-        // 初始化 WiFi
         wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
         ESP_ERROR_CHECK(esp_wifi_init(&cfg));
         
@@ -151,10 +149,6 @@ void WifiService::handleAPModeStarted() {
     }
 }
 
-void WifiService::disconnect() {
-    esp_wifi_stop();
-}
-
 bool WifiService::isConnected() {
     EventBits_t bits = xEventGroupGetBits(_eventGroup);
     return (bits & WIFI_SERVICE_CONNECTED_BIT) != 0;
@@ -201,6 +195,13 @@ void WifiService::handleWifiConnected() {
     if (onConnected) onConnected();
 }
 
+static void wifiReconnectTask(void* arg) {
+    WifiService* service = static_cast<WifiService*>(arg);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_wifi_connect();
+    vTaskDelete(nullptr);
+}
+
 void WifiService::handleWifiDisconnected(int reason) {
     ESP_LOGI(TAG, "WiFi disconnected, reason: %d", reason);
     
@@ -210,8 +211,7 @@ void WifiService::handleWifiDisconnected(int reason) {
         
         if (onConnecting) onConnecting(_retryCount);
         
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        esp_wifi_connect();
+        xTaskCreate(wifiReconnectTask, "wifi_recon", 2048, this, tskIDLE_PRIORITY, nullptr);
     } else {
         ESP_LOGI(TAG, "Max retries reached, starting AP mode");
         xEventGroupSetBits(_eventGroup, WIFI_SERVICE_FAIL_BIT);

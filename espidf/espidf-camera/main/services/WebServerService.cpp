@@ -885,16 +885,22 @@ esp_err_t WebServerService::apiStreamWsHandler(httpd_req_t* req) {
         return err;
     }
 
+    int fd = httpd_req_to_sockfd(req);
+
     uint8_t* payloadBuf = nullptr;
     if (ws_pkt.len > 0) {
         payloadBuf = (uint8_t*)calloc(1, ws_pkt.len + 1);
         if (payloadBuf) {
             ws_pkt.payload = payloadBuf;
-            httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+            err = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "WS recv payload failed err=%d fd=%d", (int)err, fd);
+                free(payloadBuf);
+                payloadBuf = nullptr;
+                ws_pkt.payload = nullptr;
+            }
         }
     }
-
-    int fd = httpd_req_to_sockfd(req);
 
     switch (ws_pkt.type) {
     case HTTPD_WS_TYPE_TEXT: {
@@ -936,15 +942,17 @@ esp_err_t WebServerService::apiStreamWsHandler(httpd_req_t* req) {
 
 // 拍照完成回调，由相机调用
 void WebServerService::notifyPhotoCaptured(camera_fb_t* fb) {
-    if (!fb) return;
+    if (!fb) {
+        _isTakingPhoto = false;
+        return;
+    }
 
-    // 释放旧缓冲区
     if (_photoBuffer) {
         free(_photoBuffer);
         _photoBuffer = nullptr;
+        _photoBufferSize = 0;
     }
 
-    // 复制照片到全局缓冲区
     _photoBuffer = (uint8_t*)malloc(fb->len);
     if (_photoBuffer) {
         memcpy(_photoBuffer, fb->buf, fb->len);
@@ -952,6 +960,9 @@ void WebServerService::notifyPhotoCaptured(camera_fb_t* fb) {
         _photoBufferLastUseMs = getCurrentTimeMs();
         _newPhotoReady = true;
         ESP_LOGI(TAG, "New photo buffered, version: %u, size: %zu bytes", _photoVersion, fb->len);
+    } else {
+        ESP_LOGE(TAG, "Failed to allocate memory for photo buffer (%zu bytes)", fb->len);
+        _newPhotoReady = false;
     }
 
     _isTakingPhoto = false;
@@ -1033,6 +1044,10 @@ void WebServerService::stop() {
         }
         httpd_stop(_server);
         _server = nullptr;
+        releasePhotoBuffer();
+        streamRingClear();
+        _isTakingPhoto = false;
+        _newPhotoReady = false;
         ESP_LOGI(TAG, "Web server stopped");
     }
 }

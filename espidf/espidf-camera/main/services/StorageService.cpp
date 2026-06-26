@@ -71,9 +71,21 @@ void StorageService::load() {
     long fsize = ftell(file);
     fseek(file, 0, SEEK_SET);
     
+    if (fsize <= 0) {
+        fclose(file);
+        ESP_LOGI(TAG, "Config file is empty, using defaults.");
+        return;
+    }
+    
     char* buffer = (char*)malloc(fsize + 1);
-    fread(buffer, 1, fsize, file);
-    buffer[fsize] = '\0';
+    if (!buffer) {
+        fclose(file);
+        ESP_LOGE(TAG, "Failed to allocate memory for config file");
+        return;
+    }
+    
+    size_t readBytes = fread(buffer, 1, fsize, file);
+    buffer[readBytes] = '\0';
     fclose(file);
     
     cJSON* doc = cJSON_Parse(buffer);
@@ -165,6 +177,11 @@ void StorageService::save() {
     }
     
     cJSON* doc = cJSON_CreateObject();
+    if (!doc) {
+        fclose(file);
+        ESP_LOGE(TAG, "Failed to create JSON object");
+        return;
+    }
     
     cJSON_AddStringToObject(doc, "wifiSsid", _config.wifiSsid.c_str());
     cJSON_AddStringToObject(doc, "wifiPass", _config.wifiPass.c_str());
@@ -190,8 +207,12 @@ void StorageService::save() {
     cJSON_AddNumberToObject(doc, "specialEffect", _config.specialEffect);
 
     char* json_str = cJSON_Print(doc);
-    fputs(json_str, file);
-    free(json_str);
+    if (json_str) {
+        fputs(json_str, file);
+        free(json_str);
+    } else {
+        ESP_LOGE(TAG, "Failed to print JSON to string");
+    }
     cJSON_Delete(doc);
     fclose(file);
     

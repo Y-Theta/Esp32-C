@@ -1,6 +1,5 @@
 #include "camera/UnitCamS3_5MP.h"
 #include "services/StorageService.h"
-#include "services/WebServerService.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
@@ -33,10 +32,8 @@ static esp_err_t _http_event_handler(esp_http_client_event_t* evt) {
             ESP_LOGI(TAG, "HTTP_EVENT_HEADER_SENT");
             break;
         case HTTP_EVENT_ON_HEADER:
-            // ESP_LOGI(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
             break;
         case HTTP_EVENT_ON_DATA:
-            // ESP_LOGI(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
             break;
         case HTTP_EVENT_ON_FINISH:
             ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH");
@@ -50,7 +47,7 @@ static esp_err_t _http_event_handler(esp_http_client_event_t* evt) {
     return ESP_OK;
 }
 
-static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* ump) {
+static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* /*ump*/) {
     StorageService& storage = StorageService::getInstance();
     const char* server = storage.getConfig().postServer.c_str();
     int port = storage.getConfig().postPort;
@@ -68,7 +65,7 @@ static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* ump) {
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) {
-        ESP_LOGI(TAG, "Failed to init HTTP client");
+        ESP_LOGE(TAG, "Failed to init HTTP client");
         return;
     }
 
@@ -86,7 +83,12 @@ static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* ump) {
     snprintf(content_length_hdr, sizeof(content_length_hdr), "%d", contentLength);
     esp_http_client_set_header(client, "Content-Length", content_length_hdr);
 
-    esp_http_client_open(client, contentLength);
+    esp_err_t err = esp_http_client_open(client, contentLength);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        return;
+    }
 
     int written = 0;
     written += esp_http_client_write(client, constpostinfo, strlen(constpostinfo));
@@ -96,8 +98,7 @@ static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* ump) {
 
     int fetch_ret = esp_http_client_fetch_headers(client);
     int status_code = esp_http_client_get_status_code(client);
-    int resp_content_length = esp_http_client_get_content_length(client);
-    ESP_LOGI(TAG, "fetch_headers ret=%d, status=%d, content_length=%d", fetch_ret, status_code, resp_content_length);
+    ESP_LOGI(TAG, "fetch_headers ret=%d, status=%d", fetch_ret, status_code);
     
     if (status_code == 200) {
         ESP_LOGI(TAG, "Upload successful");
@@ -116,7 +117,6 @@ extern "C" void app_main(void) {
 
     Operation::init_post_data();
 
-    // 初始化存储服务
     StorageService& storage = StorageService::getInstance();
     storage.init();
     ESP_LOGI(TAG, "Storage initialized");
@@ -125,6 +125,5 @@ extern "C" void app_main(void) {
     camera.OnProcessImage = Operation::upload_photo;
     camera.Init();
 
-    // 启动相机（内部会启动 Web 服务器）
     camera.Start();
 }

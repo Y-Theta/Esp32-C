@@ -29,7 +29,6 @@ public:
     // 回调函数
     std::function<void()> onTakePhotoRequested;
     std::function<void()> onConnectToSTRequested;
-    std::function<void()> onDisconnectWiFiRequested;
 
     // HTTP handlers - 必须为 public，供文件作用域 URI 结构体引用
     static esp_err_t indexHandler(httpd_req_t* req);

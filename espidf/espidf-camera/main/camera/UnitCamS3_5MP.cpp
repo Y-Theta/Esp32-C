@@ -31,19 +31,14 @@ void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t*)> processPhoto) {
 
     SetLed(true);
 
-    // 关键修复：丢弃第一帧！
-    // 摄像头驱动内部有缓冲区，第一帧可能是旧的缓冲帧
-    // 必须丢弃第一帧，获取第二帧才是真正的新画面
     ESP_LOGI(TAG, "Discarding first frame (may be stale)...");
     camera_fb_t* stale_fb = esp_camera_fb_get();
     if (stale_fb) {
         esp_camera_fb_return(stale_fb);
         stale_fb = nullptr;
     }
-    // 短暂延迟，让摄像头捕获新画面
     vTaskDelay(100 / portTICK_PERIOD_MS);
 
-    // 获取真正的最新帧 - 尝试多次以确保能获取到稳定的帧
     for (int i = 0; i < 3; i++) {
         fb = esp_camera_fb_get();
         if (fb) {
@@ -68,11 +63,9 @@ void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t*)> processPhoto) {
     ESP_LOGI(TAG, "captured height: %d , width: %d, length: %d", fb->height, fb->width, fb->len);
 
     if (processPhoto) {
-        try {
-            processPhoto(fb);
-        } catch (...) {
-            ESP_LOGI(TAG, "Exception occurred during photo processing");
-        }
+        processPhoto(fb);
+    } else if (OnProcessImage) {
+        OnProcessImage(fb, this);
     }
 
     esp_camera_fb_return(fb);
@@ -85,11 +78,6 @@ void UnitCamS3_5MP::TakePhoto(std::function<void(camera_fb_t*)> processPhoto) {
     }
 
     SetLed(false);
-}
-
-
-
-void UnitCamS3_5MP::sd_init() {
 }
 
 void UnitCamS3_5MP::cam_init() {
@@ -223,28 +211,6 @@ void UnitCamS3_5MP::led_init() {
     gpio_reset_pin((gpio_num_t)HAL_PIN_LED);
     gpio_set_direction((gpio_num_t)HAL_PIN_LED, GPIO_MODE_OUTPUT);
     gpio_set_pull_mode((gpio_num_t)HAL_PIN_LED, GPIO_PULLUP_ONLY);
-}
-
-void UnitCamS3_5MP::mic_init() {
-    ESP_LOGI(TAG, "init mic");
-}
-
-static void btn_thread(void *parameter) {
-    while (1) {
-        if (gpio_get_level((gpio_num_t)BTN_0)) {
-            ESP_LOGI(TAG, "Btn Typed ");
-        }
-        vTaskDelay(10 / portTICK_PERIOD_MS);
-    }
-}
-
-void UnitCamS3_5MP::btn_init() {
-    ESP_LOGI(TAG, "init btn");
-    gpio_reset_pin((gpio_num_t)BTN_0);
-    gpio_set_direction((gpio_num_t)BTN_0, GPIO_MODE_INPUT);
-    gpio_set_pull_mode((gpio_num_t)BTN_0, GPIO_PULLUP_ONLY);
-
-    xTaskCreate(btn_thread, "btn", 256, NULL, 6, NULL);
 }
 
 void UnitCamS3_5MP::ReloadConfig() {
@@ -435,11 +401,8 @@ void UnitCamS3_5MP::StopStreamingMode() {
 }
 
 void UnitCamS3_5MP::Init() {
-    // 初始化存储服务
     StorageService& storage = StorageService::getInstance();
-    storage.init();
     
-    // 如果配置为空，设置默认值
     if (storage.getConfig().wifiSsid.empty()) {
         CONFIG::SystemConfig_t defaultConfig;
         defaultConfig.wifiSsid = "s20154530";
@@ -450,18 +413,15 @@ void UnitCamS3_5MP::Init() {
     }
 
     led_init();
-    sd_init();
 }
 
 void UnitCamS3_5MP::Start() {
-    // 启动时直接进入 AP 模式（用于 Web 配置/相机功能）
     StartForSetting();
 }
 
 void UnitCamS3_5MP::StartForSetting() {
     StorageService& storage = StorageService::getInstance();
 
-    // 提前注册WebServer回调，WifiService启动AP后会自动启动WebServer
     WebServerService& webServer = WebServerService::getInstance();
     webServer.onTakePhotoRequested = []() {
         UnitCamS3_5MP& camera = UnitCamS3_5MP::getInstance();
@@ -469,51 +429,21 @@ void UnitCamS3_5MP::StartForSetting() {
             WebServerService::notifyPhotoCaptured(fb);
         });
     };
-    webServer.onConnectToSTRequested = []() {
-        ESP_LOGI(TAG, "Connect to STA requested");
-    };
 
-    // 相机重新初始化前释放照片缓冲区，避免 PSRAM 不足导致 5MP 帧缓冲分配失败
     onBeforeReload = []() {
         WebServerService::releasePhotoBuffer();
     };
 
-    // 初始化 WiFi - AP 模式
     WifiService& wifi = WifiService::getInstance();
     wifi.init(storage.getConfig().wifiSsid, storage.getConfig().wifiPass);
 
-    // 设置 WiFi 事件回调
-    wifi.onConnected = []() {
-        ESP_LOGI(TAG, "WiFi connected (STA mode)");
-    };
-
-    // 启动 WiFi（优先 AP 模式）
-    wifi.connect(true); // true = 强制 AP 模式
+    wifi.connect(true);
 
     while (true) {
         vTaskDelay(500 / portTICK_PERIOD_MS);
     }
 }
 
-void UnitCamS3_5MP::StartForWorking() {
-    // STA 模式工作逻辑（保留但暂不自动使用）
-    StorageService& storage = StorageService::getInstance();
-
-    WifiService& wifi = WifiService::getInstance();
-    wifi.init(storage.getConfig().wifiSsid, storage.getConfig().wifiPass);
-
-    wifi.onConnected = []() {
-        ESP_LOGI(TAG, "WiFi connected (STA mode), camera ready");
-    };
-
-    wifi.connect();
-
-    while (true) {
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-    }
-}
-
-// 供 Web 服务调用的拍照函数
 void UnitCamS3_5MP::WebTakePhoto(std::function<void(camera_fb_t* buffer)> processPhoto) {
     if (!_initialized) {
         ESP_LOGI(TAG, "Camera not initialized, initializing...");
@@ -521,8 +451,5 @@ void UnitCamS3_5MP::WebTakePhoto(std::function<void(camera_fb_t* buffer)> proces
     }
 
     ESP_LOGI(TAG, "Taking photo via web...");
-    TakePhoto(processPhoto ? processPhoto : [](camera_fb_t *fb) {
-        // 照片数据会在 Web 服务中处理
-        ESP_LOGI(TAG, "Photo taken: %ux%u, %u bytes", fb->width, fb->height, fb->len);
-    });
+    TakePhoto(processPhoto);
 }
