@@ -269,15 +269,25 @@ esp_err_t WebServerService::getConfigHandler(httpd_req_t* req) {
 
     cJSON* root = cJSON_CreateObject();
     
-    cJSON_AddStringToObject(root, "wifiSsid", config.wifiSsid.c_str());
-    cJSON_AddStringToObject(root, "wifiPass", config.wifiPass.c_str());
+    // 返回WiFi列表
+    cJSON* wifiList = cJSON_CreateArray();
+    for (int i = 0; i < MAX_WIFI_SSIDS; i++) {
+        cJSON* wifiItem = cJSON_CreateObject();
+        cJSON_AddStringToObject(wifiItem, "ssid", config.wifiSsid[i].c_str());
+        cJSON_AddStringToObject(wifiItem, "pass", config.wifiPass[i].c_str());
+        cJSON_AddItemToArray(wifiList, wifiItem);
+    }
+    cJSON_AddItemToObject(root, "wifiList", wifiList);
+    
+    // 兼容旧版本，返回第一个WiFi
+    cJSON_AddStringToObject(root, "wifiSsid", config.wifiSsid[0].c_str());
+    cJSON_AddStringToObject(root, "wifiPass", config.wifiPass[0].c_str());
+    
     cJSON_AddStringToObject(root, "postServer", config.postServer.c_str());
-    cJSON_AddNumberToObject(root, "postPort", config.postPort);
-    cJSON_AddNumberToObject(root, "postInterval", config.postInterval);
+    cJSON_AddBoolToObject(root, "postUsePut", config.postUsePut);
+    
     cJSON_AddStringToObject(root, "startPoster", config.startPoster.c_str());
     cJSON_AddStringToObject(root, "waitApFirst", config.waitApFirst.c_str());
-    cJSON_AddStringToObject(root, "nickname", config.nickname.c_str());
-    cJSON_AddStringToObject(root, "timeZone", config.timeZone.c_str());
     
     cJSON_AddNumberToObject(root, "jpegQuantity", config.jpegQuantity);
     cJSON_AddNumberToObject(root, "frameSize", config.frameSize);
@@ -313,26 +323,36 @@ esp_err_t WebServerService::saveConfigHandler(httpd_req_t* req) {
 
     cJSON* item;
     
-    item = cJSON_GetObjectItem(root, "wifiSsid");
-    if (item && cJSON_IsString(item)) config.wifiSsid = item->valuestring;
-    
-    item = cJSON_GetObjectItem(root, "wifiPass");
-    if (item && cJSON_IsString(item)) config.wifiPass = item->valuestring;
+    // 处理WiFi列表
+    cJSON* wifiList = cJSON_GetObjectItem(root, "wifiList");
+    if (wifiList && cJSON_IsArray(wifiList)) {
+        int count = cJSON_GetArraySize(wifiList);
+        for (int i = 0; i < count && i < MAX_WIFI_SSIDS; i++) {
+            cJSON* wifiItem = cJSON_GetArrayItem(wifiList, i);
+            if (wifiItem && cJSON_IsObject(wifiItem)) {
+                cJSON* ssid = cJSON_GetObjectItem(wifiItem, "ssid");
+                cJSON* pass = cJSON_GetObjectItem(wifiItem, "pass");
+                if (ssid && cJSON_IsString(ssid)) config.wifiSsid[i] = ssid->valuestring;
+                if (pass && cJSON_IsString(pass)) config.wifiPass[i] = pass->valuestring;
+            }
+        }
+    } else {
+        // 兼容旧版本单WiFi
+        item = cJSON_GetObjectItem(root, "wifiSsid");
+        if (item && cJSON_IsString(item)) config.wifiSsid[0] = item->valuestring;
+        
+        item = cJSON_GetObjectItem(root, "wifiPass");
+        if (item && cJSON_IsString(item)) config.wifiPass[0] = item->valuestring;
+    }
     
     item = cJSON_GetObjectItem(root, "postServer");
     if (item && cJSON_IsString(item)) config.postServer = item->valuestring;
     
-    item = cJSON_GetObjectItem(root, "postPort");
-    if (item && cJSON_IsNumber(item)) config.postPort = item->valueint;
-    
-    item = cJSON_GetObjectItem(root, "postInterval");
-    if (item && cJSON_IsNumber(item)) config.postInterval = item->valueint;
-    
-    item = cJSON_GetObjectItem(root, "nickname");
-    if (item && cJSON_IsString(item)) config.nickname = item->valuestring;
-    
-    item = cJSON_GetObjectItem(root, "timeZone");
-    if (item && cJSON_IsString(item)) config.timeZone = item->valuestring;
+    item = cJSON_GetObjectItem(root, "postUsePut");
+    if (item) {
+        if (cJSON_IsBool(item)) config.postUsePut = cJSON_IsTrue(item);
+        else if (cJSON_IsNumber(item)) config.postUsePut = (item->valueint != 0);
+    }
 
     item = cJSON_GetObjectItem(root, "jpegQuantity");
     if (item && cJSON_IsNumber(item)) config.jpegQuantity = item->valueint;

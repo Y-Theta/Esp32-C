@@ -403,12 +403,18 @@ void UnitCamS3_5MP::StopStreamingMode() {
 void UnitCamS3_5MP::Init() {
     StorageService& storage = StorageService::getInstance();
     
-    if (storage.getConfig().wifiSsid.empty()) {
+    bool hasWifiConfig = false;
+    for (int i = 0; i < MAX_WIFI_SSIDS; i++) {
+        if (!storage.getConfig().wifiSsid[i].empty()) {
+            hasWifiConfig = true;
+            break;
+        }
+    }
+    
+    if (!hasWifiConfig) {
         CONFIG::SystemConfig_t defaultConfig;
-        defaultConfig.wifiSsid = "s20154530";
-        defaultConfig.wifiPass = "Y20154530";
-        defaultConfig.postServer = "n8n.y-theta.cn";
-        defaultConfig.postPort = 443;
+        defaultConfig.wifiSsid[0] = "s20154530";
+        defaultConfig.wifiPass[0] = "Y20154530";
         storage.setConfig(defaultConfig);
     }
 
@@ -435,7 +441,7 @@ void UnitCamS3_5MP::StartForSetting() {
     };
 
     WifiService& wifi = WifiService::getInstance();
-    wifi.init(storage.getConfig().wifiSsid, storage.getConfig().wifiPass);
+    wifi.init();
 
     wifi.connect(true);
 

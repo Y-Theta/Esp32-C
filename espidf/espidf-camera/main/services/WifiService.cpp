@@ -1,5 +1,6 @@
 #include "services/WifiService.h"
 #include "services/WebServerService.h"
+#include "services/StorageService.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "nvs_flash.h"
@@ -8,9 +9,8 @@
 
 static const char* TAG = "WifiService";
 
-void WifiService::init(const std::string& ssid, const std::string& password) {
-    _ssid = ssid;
-    _password = password;
+void WifiService::init() {
+    _currentWifiIndex = 0;
     _retryCount = 0;
     _apMode = false;
     
@@ -49,6 +49,37 @@ void WifiService::init(const std::string& ssid, const std::string& password) {
     }
 }
 
+bool WifiService::connectNextWifi() {
+    StorageService& storage = StorageService::getInstance();
+    const CONFIG::SystemConfig_t& config = storage.getConfig();
+    
+    // 找到下一个非空的WiFi配置
+    while (_currentWifiIndex < MAX_WIFI_SSIDS) {
+        if (!config.wifiSsid[_currentWifiIndex].empty()) {
+            ESP_LOGI(TAG, "Trying WiFi %d: SSID=%s", _currentWifiIndex + 1, config.wifiSsid[_currentWifiIndex].c_str());
+            
+            wifi_config_t wifi_config = {};
+            strlcpy((char*)wifi_config.sta.ssid, config.wifiSsid[_currentWifiIndex].c_str(), sizeof(wifi_config.sta.ssid));
+            strlcpy((char*)wifi_config.sta.password, config.wifiPass[_currentWifiIndex].c_str(), sizeof(wifi_config.sta.password));
+            wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+            wifi_config.sta.scan_method = WIFI_FAST_SCAN;
+            wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+            wifi_config.sta.pmf_cfg.capable = true;
+            wifi_config.sta.pmf_cfg.required = false;
+            
+            ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+            ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+            esp_wifi_connect();
+            
+            _retryCount = 0;
+            return true;
+        }
+        _currentWifiIndex++;
+    }
+    
+    return false;
+}
+
 void WifiService::connect(bool forceAP) {
     if (_apMode) {
         ESP_LOGI(TAG, "Already in AP mode");
@@ -63,36 +94,41 @@ void WifiService::connect(bool forceAP) {
         return;
     }
     
-    ESP_LOGI(TAG, "Connecting to SSID: %s", _ssid.c_str());
+    _currentWifiIndex = 0;
+    _apMode = false;
     
-    // 配置 WiFi
-    wifi_config_t wifi_config = {};
-    strlcpy((char*)wifi_config.sta.ssid, _ssid.c_str(), sizeof(wifi_config.sta.ssid));
-    strlcpy((char*)wifi_config.sta.password, _password.c_str(), sizeof(wifi_config.sta.password));
-    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    wifi_config.sta.scan_method = WIFI_FAST_SCAN;
-    wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
-    wifi_config.sta.pmf_cfg.capable = true;
-    wifi_config.sta.pmf_cfg.required = false;
+    if (!connectNextWifi()) {
+        ESP_LOGI(TAG, "No WiFi configured, starting AP mode");
+        startAPMode();
+        return;
+    }
     
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     
     ESP_LOGI(TAG, "Waiting for WiFi connection...");
     
-    // 等待连接
-    EventBits_t bits = xEventGroupWaitBits(_eventGroup,
-                                            WIFI_SERVICE_CONNECTED_BIT | WIFI_SERVICE_FAIL_BIT,
-                                            pdFALSE,
-                                            pdFALSE,
-                                            pdMS_TO_TICKS(30000)); // 30秒超时
-    
-    if (bits & WIFI_SERVICE_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "WiFi connected successfully!");
-    } else {
-        ESP_LOGI(TAG, "WiFi connection failed, starting AP mode");
-        startAPMode();
+    // 等待连接，循环尝试所有配置的SSID
+    while (true) {
+        EventBits_t bits = xEventGroupWaitBits(_eventGroup,
+                                                WIFI_SERVICE_CONNECTED_BIT | WIFI_SERVICE_FAIL_BIT,
+                                                pdFALSE,
+                                                pdFALSE,
+                                                pdMS_TO_TICKS(15000));
+        
+        if (bits & WIFI_SERVICE_CONNECTED_BIT) {
+            ESP_LOGI(TAG, "WiFi connected successfully!");
+            return;
+        }
+        
+        // 连接失败，尝试下一个SSID
+        _currentWifiIndex++;
+        xEventGroupClearBits(_eventGroup, WIFI_SERVICE_FAIL_BIT);
+        
+        if (!connectNextWifi()) {
+            ESP_LOGI(TAG, "All WiFi configurations failed, starting AP mode");
+            startAPMode();
+            return;
+        }
     }
 }
 
@@ -101,14 +137,11 @@ void WifiService::startAPMode() {
     _apMode = true;
     _retryCount = 0;
     
-    // 停止之前的连接
     esp_wifi_stop();
     
-    // 配置 AP 网络
     esp_netif_ip_info_t ip_info;
     memset(&ip_info, 0, sizeof(ip_info));
     
-    // 设置 IP 地址为 172.20.0.1 (网络字节序)
     ip_info.ip.addr = inet_addr("172.20.0.1");
     ip_info.gw.addr = ip_info.ip.addr;
     ip_info.netmask.addr = inet_addr("255.255.255.0");
@@ -118,7 +151,6 @@ void WifiService::startAPMode() {
     ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ip_info));
     ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
     
-    // 配置 AP 模式
     wifi_config_t ap_config = {};
     strlcpy((char*)ap_config.ap.ssid, "M5Stack 5MP Cam", sizeof(ap_config.ap.ssid));
     ap_config.ap.ssid_len = strlen("M5Stack 5MP Cam");
@@ -140,7 +172,6 @@ void WifiService::handleAPModeStarted() {
     ESP_LOGI(TAG, "AP mode started! SSID: M5Stack 5MP Cam");
     ESP_LOGI(TAG, "Connect to WiFi 'M5Stack 5MP Cam' (password: 20154530) and visit http://172.20.0.1");
     
-    // 启动 Web 服务器
     WebServerService& webServer = WebServerService::getInstance();
     webServer.start();
     
@@ -165,7 +196,6 @@ void WifiService::wifiEventCallback(void* arg, esp_event_base_t event_base,
             }
         } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
             ESP_LOGI(TAG, "WiFi connected to AP!");
-            service->handleWifiConnected();
         } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
             if (!service->_apMode) {
                 wifi_event_sta_disconnected_t* event = 
@@ -181,7 +211,6 @@ void WifiService::wifiEventCallback(void* arg, esp_event_base_t event_base,
             ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
             ESP_LOGI(TAG, "You can now visit the configuration page at http://" IPSTR, IP2STR(&event->ip_info.ip));
             
-            // 启动 Web 服务器
             WebServerService& webServer = WebServerService::getInstance();
             webServer.start();
             
@@ -205,20 +234,21 @@ static void wifiReconnectTask(void* arg) {
 void WifiService::handleWifiDisconnected(int reason) {
     ESP_LOGI(TAG, "WiFi disconnected, reason: %d", reason);
     
-    if (_retryCount < MAX_RETRY) {
+    if (_retryCount < MAX_RETRY_PER_SSID) {
         _retryCount++;
-        ESP_LOGI(TAG, "Retrying WiFi connection... (%d/%d)", _retryCount, MAX_RETRY);
+        ESP_LOGI(TAG, "Retrying WiFi connection... (%d/%d for SSID %d)", 
+                 _retryCount, MAX_RETRY_PER_SSID, _currentWifiIndex + 1);
         
         if (onConnecting) onConnecting(_retryCount);
         
         xTaskCreate(wifiReconnectTask, "wifi_recon", 2048, this, tskIDLE_PRIORITY, nullptr);
     } else {
-        ESP_LOGI(TAG, "Max retries reached, starting AP mode");
+        ESP_LOGI(TAG, "Max retries reached for this SSID, trying next...");
         xEventGroupSetBits(_eventGroup, WIFI_SERVICE_FAIL_BIT);
-        startAPMode();
     }
 }
 
 void WifiService::handleGotIP() {
     xEventGroupSetBits(_eventGroup, WIFI_SERVICE_CONNECTED_BIT);
+    handleWifiConnected();
 }

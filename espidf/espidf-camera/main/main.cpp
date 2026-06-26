@@ -1,5 +1,6 @@
 #include "camera/UnitCamS3_5MP.h"
 #include "services/StorageService.h"
+#include "services/WifiService.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
@@ -49,14 +50,16 @@ static esp_err_t _http_event_handler(esp_http_client_event_t* evt) {
 
 static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* /*ump*/) {
     StorageService& storage = StorageService::getInstance();
-    const char* server = storage.getConfig().postServer.c_str();
-    int port = storage.getConfig().postPort;
+    const char* serverUrl = storage.getConfig().postServer.c_str();
+    bool usePut = storage.getConfig().postUsePut;
 
-    char url[256];
-    snprintf(url, sizeof(url), "https://%s:%d/imgup", server, port);
+    if (strlen(serverUrl) == 0) {
+        ESP_LOGI(TAG, "No upload server configured, skipping upload");
+        return;
+    }
 
     esp_http_client_config_t config = {};
-    config.url = url;
+    config.url = serverUrl;
     config.event_handler = _http_event_handler;
     config.timeout_ms = 10000;
     config.transport_type = HTTP_TRANSPORT_OVER_SSL;
@@ -69,15 +72,24 @@ static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* /*ump*/) {
         return;
     }
 
-    int contentLength = strlen(constpostinfo) + fb->len + strlen(footer);
-
-    esp_http_client_set_method(client, HTTP_METHOD_POST);
-    esp_http_client_set_header(client, "Accept", "*/*");
-    esp_http_client_set_header(client, "Connection", "Keep-Alive");
+    int contentLength;
     
-    char content_type[64];
-    snprintf(content_type, sizeof(content_type), "multipart/form-data; boundary=%s", boundary);
-    esp_http_client_set_header(client, "Content-Type", content_type);
+    if (usePut) {
+        // PUT方式：直接上传JPEG二进制数据
+        contentLength = fb->len;
+        esp_http_client_set_method(client, HTTP_METHOD_PUT);
+        esp_http_client_set_header(client, "Content-Type", "image/jpeg");
+    } else {
+        // POST multipart/form-data方式
+        contentLength = strlen(constpostinfo) + fb->len + strlen(footer);
+        esp_http_client_set_method(client, HTTP_METHOD_POST);
+        esp_http_client_set_header(client, "Accept", "*/*");
+        esp_http_client_set_header(client, "Connection", "Keep-Alive");
+        
+        char content_type[64];
+        snprintf(content_type, sizeof(content_type), "multipart/form-data; boundary=%s", boundary);
+        esp_http_client_set_header(client, "Content-Type", content_type);
+    }
     
     char content_length_hdr[32];
     snprintf(content_length_hdr, sizeof(content_length_hdr), "%d", contentLength);
@@ -91,16 +103,21 @@ static void upload_photo(camera_fb_t* fb, UnitCamS3_5MP* /*ump*/) {
     }
 
     int written = 0;
-    written += esp_http_client_write(client, constpostinfo, strlen(constpostinfo));
-    written += esp_http_client_write(client, (const char*)fb->buf, fb->len);
-    written += esp_http_client_write(client, footer, strlen(footer));
-    ESP_LOGI(TAG, "Total bytes written: %d / %d", written, contentLength);
+    if (usePut) {
+        written += esp_http_client_write(client, (const char*)fb->buf, fb->len);
+    } else {
+        written += esp_http_client_write(client, constpostinfo, strlen(constpostinfo));
+        written += esp_http_client_write(client, (const char*)fb->buf, fb->len);
+        written += esp_http_client_write(client, footer, strlen(footer));
+    }
+    ESP_LOGI(TAG, "Total bytes written: %d / %d (method: %s)", 
+             written, contentLength, usePut ? "PUT" : "POST");
 
     int fetch_ret = esp_http_client_fetch_headers(client);
     int status_code = esp_http_client_get_status_code(client);
     ESP_LOGI(TAG, "fetch_headers ret=%d, status=%d", fetch_ret, status_code);
     
-    if (status_code == 200) {
+    if (status_code >= 200 && status_code < 300) {
         ESP_LOGI(TAG, "Upload successful");
     } else {
         ESP_LOGI(TAG, "Upload failed, status code: %d", status_code);

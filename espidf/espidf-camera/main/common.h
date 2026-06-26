@@ -6,18 +6,17 @@
 
 #define CONFIG_FILE_PATH "/spiffs/config.json"
 
+#define MAX_WIFI_SSIDS 3
+
 namespace CONFIG {
 struct SystemConfig_t {
-    std::string wifiSsid = "";
-    std::string wifiPass = "";
+    std::string wifiSsid[MAX_WIFI_SSIDS] = {"", "", ""};
+    std::string wifiPass[MAX_WIFI_SSIDS] = {"", "", ""};
     std::string startPoster = "no";
     std::string waitApFirst = "no";
-    std::string nickname = "5mpCamera";
-    std::string timeZone = "GMT+0";
 
-    std::string postServer = "127.0.0.1";
-    int postPort = 8080;
-    int postInterval = 5;
+    std::string postServer = "";
+    bool postUsePut = false;
 
     int jpegQuantity = 12;
     int frameSize = (int)FRAMESIZE_VGA;

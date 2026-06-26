@@ -1,10 +1,8 @@
 // 全局配置
 let currentConfig = {
-    wifiSsid: '',
-    wifiPass: '',
+    wifiList: [{ssid:'', pass:''}, {ssid:'', pass:''}, {ssid:'', pass:''}],
     postServer: '',
-    postPort: 8080,
-    postInterval: 60,
+    postUsePut: false,
     jpegQuantity: 1,
     frameSize: 10,
     streamFps: 25,
@@ -12,11 +10,7 @@ let currentConfig = {
     contrast: 3,
     saturation: 3,
     brightness: 4,
-    specialEffect: 0,
-    startPoster: 'off',
-    waitApFirst: 'off',
-    nickname: '5mpCamera',
-    timeZone: 'GMT+0'
+    specialEffect: 0
 };
 
 let cameraStatus = {
@@ -37,15 +31,16 @@ let isTakingPhoto = false;
 let memoryRefreshTimer = null;
 
 // ===== 监控流相关 (WebSocket 推流) =====
-// 后端建立 WS 后直接推送二进制 JPEG 帧；前端收到即渲染，无队列无轮询
 let monitorActive = false;
-let streamWs = null;               // WebSocket 实例
+let streamWs = null;
 let frameCount = 0;
 let streamTotalBytes = 0;
 let fpsCounter = { frames: 0, lastTs: 0, fps: 0 };
 let currentBlobUrl = null;
-let currentFrameIntervalMs = 50;   // 目标帧间隔（由配置决定）
-let lastRenderTs = 0;              // 上次渲染时间戳（按目标帧率节流）
+let currentFrameIntervalMs = 50;
+let lastRenderTs = 0;
+
+const MAX_WIFI_SSIDS = 3;
 
 // 更新内存状态显示
 async function updateMemoryStatus() {
@@ -54,11 +49,9 @@ async function updateMemoryStatus() {
         if (response.ok) {
             const data = await response.json();
             
-            // 更新 RAM
             document.getElementById('ram-used').textContent = formatBytes(data.ram.used);
             document.getElementById('ram-total').textContent = formatBytes(data.ram.total);
             
-            // 更新 PSRAM
             document.getElementById('psram-used').textContent = formatBytes(data.psram.used);
             document.getElementById('psram-total').textContent = formatBytes(data.psram.total);
         }
@@ -67,18 +60,44 @@ async function updateMemoryStatus() {
     }
 }
 
+// 生成WiFi列表表单
+function renderWifiList() {
+    const container = document.getElementById('wifi-list');
+    container.innerHTML = '';
+    
+    for (let i = 0; i < MAX_WIFI_SSIDS; i++) {
+        const wifiItem = document.createElement('div');
+        wifiItem.className = 'wifi-item';
+        wifiItem.innerHTML = `
+            <div class="wifi-item-header">
+                <span class="wifi-item-number">热点 ${i + 1}</span>
+            </div>
+            <div class="wifi-item-fields">
+                <div class="form-group">
+                    <label for="wifi-ssid-${i}">热点名称 (SSID)</label>
+                    <input type="text" id="wifi-ssid-${i}" placeholder="输入 WiFi 名称" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="wifi-pass-${i}">热点密码</label>
+                    <input type="password" id="wifi-pass-${i}" placeholder="输入 WiFi 密码" autocomplete="off">
+                </div>
+            </div>
+        `;
+        container.appendChild(wifiItem);
+    }
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
+    renderWifiList();
     initTabs();
     initRangeInputs();
     initButtons();
     loadConfig();
     loadCameraStatus();
     
-    // 立即更新一次内存状态
     updateMemoryStatus();
     
-    // 每 3 秒刷新内存状态（推流时降频避免与帧请求竞争 HTTP 连接）
     memoryRefreshTimer = setInterval(updateMemoryStatus, 3000);
 });
 
@@ -99,11 +118,9 @@ function initTabs() {
             const targetId = targetTab + '-tab';
             document.getElementById(targetId).classList.add('active');
 
-            // 从推流页签切换到其他页签时自动关闭推流
             if (currentActiveTab === 'monitor' && targetTab !== 'monitor') {
                 stopMonitor();
             }
-            // 切换到推流页签时不自动启动，需要手动点击按钮
         });
     });
 }
@@ -132,7 +149,6 @@ function initRangeInputs() {
 function initButtons() {
     document.getElementById('capture-btn').addEventListener('click', capturePhoto);
     document.getElementById('save-config-btn').addEventListener('click', saveConfig);
-    document.getElementById('connect-sta-btn').addEventListener('click', connectToSTA);
     document.getElementById('apply-camera-btn').addEventListener('click', applyCameraSettings);
     document.getElementById('monitor-start-btn').addEventListener('click', startMonitor);
     document.getElementById('monitor-stop-btn').addEventListener('click', stopMonitor);
@@ -144,6 +160,22 @@ async function loadConfig() {
         const response = await fetch('/api/config');
         if (response.ok) {
             currentConfig = await response.json();
+            
+            // 处理WiFi列表 - 兼容旧版本单WiFi配置
+            if (!currentConfig.wifiList || !Array.isArray(currentConfig.wifiList)) {
+                currentConfig.wifiList = [];
+                for (let i = 0; i < MAX_WIFI_SSIDS; i++) {
+                    if (i === 0) {
+                        currentConfig.wifiList.push({
+                            ssid: currentConfig.wifiSsid || '',
+                            pass: currentConfig.wifiPass || ''
+                        });
+                    } else {
+                        currentConfig.wifiList.push({ssid: '', pass: ''});
+                    }
+                }
+            }
+            
             fillSystemForm(currentConfig);
             fillCameraForm(currentConfig);
             console.log('Config loaded:', currentConfig);
@@ -160,7 +192,6 @@ async function loadCameraStatus() {
         if (response.ok) {
             cameraStatus = await response.json();
             updateCameraInitStatus(cameraStatus.initialized);
-            console.log('Camera status:', cameraStatus);
         }
     } catch (e) {
         console.error('Failed to load camera status:', e);
@@ -184,13 +215,20 @@ function updateCameraInitStatus(initialized) {
 
 // 填充系统设置表单
 function fillSystemForm(config) {
-    document.getElementById('wifi-ssid').value = config.wifiSsid || '';
-    document.getElementById('wifi-password').value = config.wifiPass || '';
-    document.getElementById('server-address').value = config.postServer || '';
-    document.getElementById('server-port').value = config.postPort || 8080;
-    document.getElementById('upload-interval').value = config.postInterval || 60;
-    document.getElementById('nickname').value = config.nickname || '5mpCamera';
-    document.getElementById('timezone').value = config.timeZone || 'GMT+0';
+    // 填充WiFi列表
+    for (let i = 0; i < MAX_WIFI_SSIDS; i++) {
+        const ssidInput = document.getElementById(`wifi-ssid-${i}`);
+        const passInput = document.getElementById(`wifi-pass-${i}`);
+        if (ssidInput && config.wifiList[i]) {
+            ssidInput.value = config.wifiList[i].ssid || '';
+        }
+        if (passInput && config.wifiList[i]) {
+            passInput.value = config.wifiList[i].pass || '';
+        }
+    }
+    
+    document.getElementById('post-server').value = config.postServer || '';
+    document.getElementById('post-use-put').checked = config.postUsePut || false;
 }
 
 // 填充相机设置表单
@@ -254,16 +292,14 @@ async function capturePhoto() {
     statusElement.textContent = '正在拍照...';
     document.querySelector('#capture-status').parentElement.querySelector('.status-dot').classList.add('busy');
 
-    // 先隐藏并清空旧图片 - 使用透明占位图避免触发请求
     placeholder.style.display = 'block';
     imageContainer.style.display = 'none';
     const img = document.getElementById('captured-photo');
-    // 释放旧的 blob URL（如果存在）
     if (img.dataset.blobUrl) {
         URL.revokeObjectURL(img.dataset.blobUrl);
         delete img.dataset.blobUrl;
     }
-    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; // 1x1 透明 GIF
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
     try {
         const response = await fetch('/api/take-photo', {
@@ -281,11 +317,9 @@ async function capturePhoto() {
 
             if (data.success) {
                 const targetVersion = data.photoVersion;
-                console.log('Waiting for photo version:', targetVersion);
 
-                // 轮询查询拍照状态，直到新照片准备好
                 let photoReady = false;
-                let maxRetries = 20; // 最多等待约6秒
+                let maxRetries = 20;
                 let retryCount = 0;
 
                 while (!photoReady && retryCount < maxRetries) {
@@ -293,9 +327,7 @@ async function capturePhoto() {
                     if (statusData) {
                         if (statusData.photoVersion >= targetVersion && statusData.newPhotoReady) {
                             photoReady = true;
-                            console.log('New photo ready, version:', statusData.photoVersion);
                         } else if (!statusData.isTakingPhoto) {
-                            // 如果已经停止拍照但照片没准备好，多等一会儿
                             await new Promise(resolve => setTimeout(resolve, 200));
                         }
                     }
@@ -309,26 +341,22 @@ async function capturePhoto() {
                 document.getElementById('photo-size').textContent = formatBytes(data.photoSize);
                 document.getElementById('photo-time').textContent = new Date().toLocaleString();
 
-                // 保持隐藏图片容器，先不显示
                 placeholder.style.display = 'block';
                 imageContainer.style.display = 'none';
                 photoInfo.style.display = 'none';
 
-                // 使用 fetch + blob 方式获取图片，完全绕过浏览器缓存
                 const uniqueId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
                 const photoUrl = '/api/last-photo?t=' + uniqueId + '&v=' + targetVersion + '&nocache=' + uniqueId;
                 
                 let loadTimeout = null;
                 let loadComplete = false;
                 
-                // 设置超时保护，防止卡死
                 loadTimeout = setTimeout(() => {
                     if (!loadComplete) {
                         loadComplete = true;
                         statusElement.textContent = '图片加载超时';
-                        console.error('Image load timeout');
                     }
-                }, 15000); // 15秒超时
+                }, 15000);
                 
                 try {
                     const imgResponse = await fetch(photoUrl, {
@@ -350,57 +378,42 @@ async function capturePhoto() {
                         return;
                     }
                     
-                    // 创建 blob URL
                     const blobUrl = URL.createObjectURL(blob);
                     
-                    // 释放之前的 blob URL
                     if (img.dataset.blobUrl) {
                         URL.revokeObjectURL(img.dataset.blobUrl);
                     }
                     img.dataset.blobUrl = blobUrl;
                     
-                    // 设置图片加载回调
                     img.onload = () => {
                         if (!loadComplete) {
                             loadComplete = true;
-                            if (loadTimeout) {
-                                clearTimeout(loadTimeout);
-                            }
-                            // 图片完全加载后再展示
+                            if (loadTimeout) clearTimeout(loadTimeout);
                             placeholder.style.display = 'none';
                             imageContainer.style.display = 'block';
                             photoInfo.style.display = 'flex';
                             statusElement.textContent = '拍照成功';
-                            console.log('Image loaded successfully via blob');
                         }
                     };
                     
                     img.onerror = () => {
                         if (!loadComplete) {
                             loadComplete = true;
-                            if (loadTimeout) {
-                                clearTimeout(loadTimeout);
-                            }
+                            if (loadTimeout) clearTimeout(loadTimeout);
                             statusElement.textContent = '图片加载失败';
-                            console.error('Image failed to load');
                         }
                     };
                     
-                    // 设置 src 触发 onload
                     img.src = blobUrl;
                     
                 } catch (e) {
                     if (!loadComplete) {
                         loadComplete = true;
-                        if (loadTimeout) {
-                            clearTimeout(loadTimeout);
-                        }
+                        if (loadTimeout) clearTimeout(loadTimeout);
                         statusElement.textContent = '图片获取失败: ' + e.message;
-                        console.error('Image fetch failed:', e);
                     }
                 }
 
-                // 拍照会初始化相机，刷新状态
                 loadCameraStatus();
             } else {
                 statusElement.textContent = '拍照失败: ' + (data.error || '未知错误');
@@ -418,7 +431,7 @@ async function capturePhoto() {
     }
 }
 
-// 应用相机设置（热重载，不重启）
+// 应用相机设置
 async function applyCameraSettings() {
     const btn = document.getElementById('apply-camera-btn');
     const statusEl = document.getElementById('camera-settings-status');
@@ -439,7 +452,6 @@ async function applyCameraSettings() {
     };
 
     try {
-        // 拍照期间后端会返回 409，自动重试避免用户看到失败提示
         let response = null;
         for (let attempt = 0; attempt < 5; attempt++) {
             response = await fetch('/api/camera/set-all', {
@@ -448,7 +460,6 @@ async function applyCameraSettings() {
                 body: JSON.stringify(settings)
             });
             if (response.status !== 409) break;
-            // 相机忙，等待 600ms 后重试
             await new Promise(r => setTimeout(r, 600));
         }
 
@@ -456,7 +467,6 @@ async function applyCameraSettings() {
             const data = await response.json();
             if (data.success) {
                 showMessage(statusEl, '相机设置已应用', 'success');
-                // 如果正在推流，需要重启推流使帧率生效
                 if (monitorActive) {
                     await stopMonitor();
                     await startMonitor();
@@ -468,7 +478,6 @@ async function applyCameraSettings() {
         } else if (response.status === 409) {
             showMessage(statusEl, '相机忙碌，请稍后重试', 'error');
         } else {
-            // 相机初始化失败时后端会返回 success=false
             try {
                 const data = await response.json();
                 showMessage(statusEl, '设置应用失败: ' + (data.error || '相机初始化失败'), 'error');
@@ -484,7 +493,7 @@ async function applyCameraSettings() {
     }
 }
 
-// 保存系统配置（需要重启）
+// 保存系统配置
 async function saveConfig() {
     const saveBtn = document.getElementById('save-config-btn');
     const statusElement = document.getElementById('save-status');
@@ -492,15 +501,19 @@ async function saveConfig() {
     saveBtn.disabled = true;
     showMessage(statusElement, '正在保存...', 'info');
 
-    currentConfig.wifiSsid = document.getElementById('wifi-ssid').value;
-    currentConfig.wifiPass = document.getElementById('wifi-password').value;
-    currentConfig.postServer = document.getElementById('server-address').value;
-    currentConfig.postPort = parseInt(document.getElementById('server-port').value);
-    currentConfig.postInterval = parseInt(document.getElementById('upload-interval').value);
-    currentConfig.nickname = document.getElementById('nickname').value;
-    currentConfig.timeZone = document.getElementById('timezone').value;
+    // 收集WiFi列表
+    currentConfig.wifiList = [];
+    for (let i = 0; i < MAX_WIFI_SSIDS; i++) {
+        currentConfig.wifiList.push({
+            ssid: document.getElementById(`wifi-ssid-${i}`).value,
+            pass: document.getElementById(`wifi-pass-${i}`).value
+        });
+    }
+    
+    currentConfig.postServer = document.getElementById('post-server').value;
+    currentConfig.postUsePut = document.getElementById('post-use-put').checked;
 
-    // 同时保存相机参数到配置文件中
+    // 同时保存相机参数
     currentConfig.jpegQuantity = parseInt(document.getElementById('jpeg-quality').value);
     currentConfig.frameSize = parseInt(document.getElementById('frame-size').value);
     currentConfig.streamFps = parseInt(document.getElementById('stream-fps').value);
@@ -534,33 +547,9 @@ async function saveConfig() {
     }
 }
 
-// 连接到 STA 模式
-async function connectToSTA() {
-    const connectBtn = document.getElementById('connect-sta-btn');
-    connectBtn.disabled = true;
-
-    try {
-        const response = await fetch('/api/connect-sta', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            console.log('Connecting to STA:', data);
-        }
-    } catch (e) {
-        console.error('Connect failed:', e);
-    } finally {
-        connectBtn.disabled = false;
-    }
-}
-
 // ===== 监控流功能 (WebSocket) =====
-// WS 二进制帧直接承载 JPEG 原始数据，收到即渲染（按目标帧率节流），无队列无轮询
 
 function renderJpegFrame(blob, sizeBytes) {
-    // FPS 统计
     const now = performance.now();
     frameCount++;
     fpsCounter.frames++;
@@ -575,7 +564,6 @@ function renderJpegFrame(blob, sizeBytes) {
         document.getElementById('stream-fps-display').textContent = 'FPS: ' + (fpsCounter.fps || '--');
     }
 
-    // 按目标帧间隔节流：防止 WS 推送速率快于目标显示帧率时过度绘制
     if (now - lastRenderTs < currentFrameIntervalMs) return;
     lastRenderTs = now;
 
@@ -591,7 +579,6 @@ function renderJpegFrame(blob, sizeBytes) {
 
 async function startMonitor() {
     if (monitorActive) {
-        console.log('Monitor already active');
         return;
     }
     monitorActive = true;
@@ -608,14 +595,12 @@ async function startMonitor() {
     statusDot.className = 'status-dot busy';
     statusText.textContent = '正在启动相机...';
 
-    // 重置统计
     frameCount = 0;
     streamTotalBytes = 0;
     lastRenderTs = 0;
     fpsCounter = { frames: 0, lastTs: performance.now(), fps: 0 };
 
     try {
-        // 1. 通知后端启动推流模式（开启相机流 + 后台采集线程）
         const resp = await fetch('/api/camera/stream-start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
@@ -624,10 +609,8 @@ async function startMonitor() {
             throw new Error('stream-start failed: HTTP ' + resp.status);
         }
         const data = await resp.json();
-        console.log('Stream start:', data);
         currentFrameIntervalMs = data.frameIntervalMs || 50;
 
-        // 2. 建立 WebSocket（根据当前页面协议选择 ws/wss）
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = proto + '//' + location.host + '/ws/camera/stream';
         const ws = new WebSocket(wsUrl);
@@ -635,8 +618,6 @@ async function startMonitor() {
         ws.binaryType = 'blob';
 
         ws.onopen = () => {
-            console.log('WS opened:', wsUrl);
-            // 发送 "start" 触发后端为该连接创建发送任务
             ws.send('start');
 
             statusText.textContent = '监控中';
@@ -659,10 +640,8 @@ async function startMonitor() {
         };
 
         ws.onclose = () => {
-            console.log('WS closed');
             streamWs = null;
             if (monitorActive) {
-                // 非用户主动关闭：异常断开
                 statusDot.className = 'status-dot offline';
                 statusText.textContent = '连接断开';
                 startBtn.disabled = false;
@@ -691,13 +670,11 @@ async function stopMonitor() {
     const wrapper = document.getElementById('stream-wrapper');
     const stats = document.getElementById('stream-stats');
 
-    // 关闭 WebSocket
     if (streamWs) {
         try { streamWs.close(); } catch (e) {}
         streamWs = null;
     }
 
-    // 释放当前图像 URL
     if (currentBlobUrl) {
         URL.revokeObjectURL(currentBlobUrl);
         currentBlobUrl = null;
@@ -714,13 +691,11 @@ async function stopMonitor() {
     const tsEl = document.getElementById('stream-timestamp');
     if (tsEl) tsEl.textContent = 'TS: --';
 
-    // 通知后端停止推流
     try {
         await fetch('/api/camera/stream-stop', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        console.log('Stream stop requested');
     } catch (e) {
         console.error('Stream stop failed:', e);
     }
@@ -736,14 +711,13 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
-// 工具函数：显示消息
+// 工具函数
 function showMessage(element, text, type) {
     element.textContent = text;
     element.className = 'message ' + type;
     element.style.display = 'block';
 }
 
-// 工具函数：格式化字节
 function formatBytes(bytes) {
     if (bytes === 0) return '0 B';
     const k = 1024;

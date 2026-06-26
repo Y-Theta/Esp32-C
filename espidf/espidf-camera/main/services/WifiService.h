@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "WebServerService.h"
+#include "common.h"
 
 #define WIFI_SERVICE_CONNECTED_BIT BIT0
 #define WIFI_SERVICE_FAIL_BIT BIT1
@@ -22,7 +23,7 @@ public:
     WifiService(const WifiService&) = delete;
     WifiService& operator=(const WifiService&) = delete;
 
-    void init(const std::string& ssid, const std::string& password);
+    void init();
     void connect(bool forceAP = false);
     void startAPMode();
     bool isConnected();
@@ -43,14 +44,13 @@ private:
     void handleWifiDisconnected(int reason);
     void handleGotIP();
     void handleAPModeStarted();
+    bool connectNextWifi();
     
-    std::string _ssid;
-    std::string _password;
-    
+    int _currentWifiIndex = 0;
     EventGroupHandle_t _eventGroup = nullptr;
     int _retryCount = 0;
     bool _apMode = false;
     bool _initialized = false;
     
-    static const int MAX_RETRY = 5;
+    static const int MAX_RETRY_PER_SSID = 3;
 };

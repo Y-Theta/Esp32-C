@@ -2,21 +2,33 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>UnitCamS3 配置</title>
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-    <div class="memory-panel">
-        <div class="memory-item">
-            <span class="memory-label">RAM:</span>
-            <span class="memory-value" id="ram-used">-</span> / <span id="ram-total">-</span>
+    <!-- 固定左下角网络/内存信息面板 -->
+    <div class="status-panel">
+        <div class="status-section">
+            <div class="status-title">📶 网络</div>
+            <div class="status-item">
+                <span class="status-dot-small" id="wifi-status-dot"></span>
+                <span id="wifi-status-text">AP 模式</span>
+            </div>
         </div>
-        <div class="memory-item">
-            <span class="memory-label">PSRAM:</span>
-            <span class="memory-value" id="psram-used">-</span> / <span id="psram-total">-</span>
+        <div class="status-section">
+            <div class="status-title">💾 内存</div>
+            <div class="status-item">
+                <span class="status-label">RAM:</span>
+                <span class="status-value" id="ram-used">-</span> / <span id="ram-total">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">PSRAM:</span>
+                <span class="status-value" id="psram-used">-</span> / <span id="psram-total">-</span>
+            </div>
         </div>
     </div>
+
     <div class="container">
         <header class="app-header">
             <h1>UnitCamS3</h1>
@@ -32,10 +44,6 @@
             <button class="tab" data-tab="monitor">
                 <span class="tab-icon">🎥</span>
                 <span class="tab-label">监控</span>
-            </button>
-            <button class="tab" data-tab="network">
-                <span class="tab-icon">📶</span>
-                <span class="tab-label">网络</span>
             </button>
             <button class="tab" data-tab="camera-settings">
                 <span class="tab-icon">🎨</span>
@@ -100,7 +108,7 @@
                         <div class="placeholder-content">
                             <span class="placeholder-icon">🎥</span>
                             <p>点击"开始监控"按钮启动实时推流</p>
-                            <p class="stream-hint">HTTP 轮询方式 · 帧率可调 15-30 FPS · VGA分辨率</p>
+                            <p class="stream-hint">WebSocket 推流 · 帧率可调 15-40 FPS · VGA分辨率</p>
                         </div>
                     </div>
 
@@ -136,32 +144,6 @@
                         <button id="monitor-stop-btn" class="btn-secondary" disabled>
                             <span class="btn-icon">■</span>
                             <span>停止监控</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 网络 Tab -->
-            <div id="network-tab" class="tab-pane">
-                <div class="card">
-                    <div class="card-header">
-                        <h2>网络模式</h2>
-                        <div class="status-pill">
-                            <span id="wifi-status" class="status-dot"></span>
-                            <span id="wifi-status-text">AP 模式</span>
-                        </div>
-                    </div>
-
-                    <div class="info-box">
-                        <p>当前 SSID: <strong>M5Stack 5MP Cam</strong></p>
-                        <p>密码: <strong>20154530</strong></p>
-                        <p>管理地址: <strong>http://172.20.0.1</strong></p>
-                    </div>
-
-                    <div class="button-group">
-                        <button id="connect-sta-btn" class="btn-primary">
-                            <span class="btn-icon">🔌</span>
-                            <span>连接到 STA 模式</span>
                         </button>
                     </div>
                 </div>
@@ -307,53 +289,29 @@
                         <span class="hint">修改后需要重启生效</span>
                     </div>
 
+                    <!-- WiFi 设置 -->
                     <div class="form-section">
-                        <h3>WiFi 设置</h3>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="wifi-ssid">WiFi 名称</label>
-                                <input type="text" id="wifi-ssid" placeholder="输入 WiFi 名称">
-                            </div>
-                            <div class="form-group">
-                                <label for="wifi-password">WiFi 密码</label>
-                                <input type="password" id="wifi-password" placeholder="输入 WiFi 密码">
-                            </div>
+                        <h3>📶 WiFi 设置</h3>
+                        <p class="section-hint">可配置最多 3 个 WiFi 热点，设备将按顺序尝试连接</p>
+                        
+                        <div id="wifi-list">
+                            <!-- WiFi 条目由 JS 动态生成 -->
                         </div>
                     </div>
 
+                    <!-- 服务器设置 -->
                     <div class="form-section">
-                        <h3>上传设置</h3>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="server-address">服务器地址</label>
-                                <input type="text" id="server-address" placeholder="例如: n8n.y-theta.cn">
-                            </div>
-                            <div class="form-group">
-                                <label for="server-port">服务器端口</label>
-                                <input type="number" id="server-port" value="8080">
-                            </div>
+                        <h3>☁️ 服务器设置</h3>
+                        <div class="form-group full-width">
+                            <label for="post-server">图片上传 URL</label>
+                            <input type="text" id="post-server" placeholder="例如: https://example.com/upload">
                         </div>
-                        <div class="form-group">
-                            <label for="upload-interval">上传间隔 (秒)</label>
-                            <input type="number" id="upload-interval" value="60">
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <h3>其他设置</h3>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="nickname">设备昵称</label>
-                                <input type="text" id="nickname" value="5mpCamera">
-                            </div>
-                            <div class="form-group">
-                                <label for="timezone">时区</label>
-                                <select id="timezone">
-                                    <option value="GMT+0" selected>GMT+0 (UTC)</option>
-                                    <option value="GMT+8">GMT+8 (北京)</option>
-                                    <option value="GMT-8">GMT-8 (太平洋)</option>
-                                </select>
-                            </div>
+                        <div class="form-group checkbox-group full-width">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="post-use-put">
+                                <span class="checkbox-custom"></span>
+                                <span>使用 PUT 方式上传</span>
+                            </label>
                         </div>
                     </div>
 

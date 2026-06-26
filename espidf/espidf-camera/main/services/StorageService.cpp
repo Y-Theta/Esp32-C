@@ -97,10 +97,29 @@ void StorageService::load() {
     }
     
     cJSON* item = cJSON_GetObjectItem(doc, "wifiSsid");
-    if (item && cJSON_IsString(item)) _config.wifiSsid = item->valuestring;
+    if (item && cJSON_IsString(item)) {
+        _config.wifiSsid[0] = item->valuestring;
+    }
     
     item = cJSON_GetObjectItem(doc, "wifiPass");
-    if (item && cJSON_IsString(item)) _config.wifiPass = item->valuestring;
+    if (item && cJSON_IsString(item)) {
+        _config.wifiPass[0] = item->valuestring;
+    }
+
+    // 支持多个WiFi配置
+    cJSON* wifiList = cJSON_GetObjectItem(doc, "wifiList");
+    if (wifiList && cJSON_IsArray(wifiList)) {
+        int count = cJSON_GetArraySize(wifiList);
+        for (int i = 0; i < count && i < MAX_WIFI_SSIDS; i++) {
+            cJSON* wifiItem = cJSON_GetArrayItem(wifiList, i);
+            if (wifiItem && cJSON_IsObject(wifiItem)) {
+                cJSON* ssid = cJSON_GetObjectItem(wifiItem, "ssid");
+                cJSON* pass = cJSON_GetObjectItem(wifiItem, "pass");
+                if (ssid && cJSON_IsString(ssid)) _config.wifiSsid[i] = ssid->valuestring;
+                if (pass && cJSON_IsString(pass)) _config.wifiPass[i] = pass->valuestring;
+            }
+        }
+    }
     
     item = cJSON_GetObjectItem(doc, "startPoster");
     if (item && cJSON_IsString(item)) _config.startPoster = item->valuestring;
@@ -108,20 +127,14 @@ void StorageService::load() {
     item = cJSON_GetObjectItem(doc, "waitApFirst");
     if (item && cJSON_IsString(item)) _config.waitApFirst = item->valuestring;
     
-    item = cJSON_GetObjectItem(doc, "nickname");
-    if (item && cJSON_IsString(item)) _config.nickname = item->valuestring;
-    
-    item = cJSON_GetObjectItem(doc, "timeZone");
-    if (item && cJSON_IsString(item)) _config.timeZone = item->valuestring;
-    
-    item = cJSON_GetObjectItem(doc, "postInterval");
-    if (item && cJSON_IsNumber(item)) _config.postInterval = item->valueint;
-    
     item = cJSON_GetObjectItem(doc, "postServer");
     if (item && cJSON_IsString(item)) _config.postServer = item->valuestring;
     
-    item = cJSON_GetObjectItem(doc, "postPort");
-    if (item && cJSON_IsNumber(item)) _config.postPort = item->valueint;
+    item = cJSON_GetObjectItem(doc, "postUsePut");
+    if (item) {
+        if (cJSON_IsBool(item)) _config.postUsePut = cJSON_IsTrue(item);
+        else if (cJSON_IsNumber(item)) _config.postUsePut = (item->valueint != 0);
+    }
     
     item = cJSON_GetObjectItem(doc, "jpegQuantity");
     if (item && cJSON_IsNumber(item)) _config.jpegQuantity = item->valueint;
@@ -183,16 +196,24 @@ void StorageService::save() {
         return;
     }
     
-    cJSON_AddStringToObject(doc, "wifiSsid", _config.wifiSsid.c_str());
-    cJSON_AddStringToObject(doc, "wifiPass", _config.wifiPass.c_str());
+    // 保存多个WiFi配置
+    cJSON* wifiList = cJSON_CreateArray();
+    for (int i = 0; i < MAX_WIFI_SSIDS; i++) {
+        cJSON* wifiItem = cJSON_CreateObject();
+        cJSON_AddStringToObject(wifiItem, "ssid", _config.wifiSsid[i].c_str());
+        cJSON_AddStringToObject(wifiItem, "pass", _config.wifiPass[i].c_str());
+        cJSON_AddItemToArray(wifiList, wifiItem);
+    }
+    cJSON_AddItemToObject(doc, "wifiList", wifiList);
+    // 兼容旧版本
+    cJSON_AddStringToObject(doc, "wifiSsid", _config.wifiSsid[0].c_str());
+    cJSON_AddStringToObject(doc, "wifiPass", _config.wifiPass[0].c_str());
+    
     cJSON_AddStringToObject(doc, "startPoster", _config.startPoster.c_str());
     cJSON_AddStringToObject(doc, "waitApFirst", _config.waitApFirst.c_str());
-    cJSON_AddStringToObject(doc, "nickname", _config.nickname.c_str());
-    cJSON_AddStringToObject(doc, "timeZone", _config.timeZone.c_str());
     
-    cJSON_AddNumberToObject(doc, "postInterval", _config.postInterval);
     cJSON_AddStringToObject(doc, "postServer", _config.postServer.c_str());
-    cJSON_AddNumberToObject(doc, "postPort", _config.postPort);
+    cJSON_AddBoolToObject(doc, "postUsePut", _config.postUsePut);
     
     cJSON_AddNumberToObject(doc, "jpegQuantity", _config.jpegQuantity);
     cJSON_AddNumberToObject(doc, "frameSize", _config.frameSize);
@@ -228,8 +249,15 @@ void StorageService::setConfig(const CONFIG::SystemConfig_t& config) {
 }
 
 void StorageService::setWifiConfig(const std::string& ssid, const std::string& password) {
-    _config.wifiSsid = ssid;
-    _config.wifiPass = password;
+    _config.wifiSsid[0] = ssid;
+    _config.wifiPass[0] = password;
+}
+
+void StorageService::setWifiConfig(int index, const std::string& ssid, const std::string& password) {
+    if (index >= 0 && index < MAX_WIFI_SSIDS) {
+        _config.wifiSsid[index] = ssid;
+        _config.wifiPass[index] = password;
+    }
 }
 
 void StorageService::setCameraConfig(int jpegQuality, int frameSize, int wbMode, int contrast, int saturation, int brightness, int specialEffect) {
@@ -240,10 +268,4 @@ void StorageService::setCameraConfig(int jpegQuality, int frameSize, int wbMode,
     _config.saturation = saturation;
     _config.brightness = brightness;
     _config.specialEffect = specialEffect;
-}
-
-void StorageService::setPostConfig(const std::string& server, int port, int interval) {
-    _config.postServer = server;
-    _config.postPort = port;
-    _config.postInterval = interval;
 }
